@@ -17,7 +17,6 @@ require "logstash/namespace"
 #
 class LogStash::Inputs::Redis < LogStash::Inputs::Threadable
   config_name "redis"
-  milestone 2
 
   default :codec, "json"
 
