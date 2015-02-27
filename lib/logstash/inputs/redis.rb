@@ -252,10 +252,18 @@ EOF
       if @data_type == 'list'
         @redis.quit
       elsif @data_type == 'channel'
-        @redis.unsubscribe
+        begin
+          @redis.unsubscribe
+        rescue RuntimeError => e
+          @logger.warn("Couldn't unsubscribe from redis channel", :exception => e)
+        end
         @redis.quit
       elsif @data_type == 'pattern_channel'
-        @redis.punsubscribe
+        begin
+          @redis.punsubscribe
+        rescue RuntimeError => e
+          @logger.warn("Couldn't unsubscribe from redis channel", :exception => e)
+        end
         @redis.quit
       end
     end
