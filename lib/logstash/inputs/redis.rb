@@ -133,9 +133,11 @@ EOF
         decorate(event)
         output_queue << event
       end
+    rescue LogStash::ShutdownSignal => e
+      # propagate up
+      raise(e)
     rescue => e # parse or event creation error
-      @logger.error("Failed to create event", :message => msg, :exception => e,
-                    :backtrace => e.backtrace);
+      @logger.error("Failed to create event", :message => msg, :exception => e, :backtrace => e.backtrace);
     end
   end
 
@@ -144,7 +146,7 @@ EOF
 
     # blpop returns the 'key' read from as well as the item result
     # we only care about the result (2nd item in the list).
-    item = redis.blpop(@key, 0)[1]
+    item = redis.blpop(@key, 0, :timeout => 1)[1]
 
     # blpop failed or .. something?
     # TODO(sissel): handle the error
@@ -222,7 +224,7 @@ EOF
   # loop.
   private
   def listener_loop(listener, output_queue)
-    while !finished?
+    while !@shutdown_requested
       begin
         @redis ||= connect
         self.send listener, @redis, output_queue
@@ -232,7 +234,7 @@ EOF
         @redis = nil
         sleep 1
       end
-    end # while !finished?
+    end
   end # listener_loop
 
   public
@@ -244,23 +246,25 @@ EOF
     else
       listener_loop :pattern_channel_listener, output_queue
     end
+  rescue LogStash::ShutdownSignal
+    # ignore and quit
   end # def run
 
   public
   def teardown
+    @shutdown_requested = true
+
     if @redis
       if @data_type == 'list'
-        @redis.quit
+        @redis.quit rescue nil
       elsif @data_type == 'channel'
-        @redis.unsubscribe
-        @redis.quit
+        @redis.unsubscribe rescue nil
+        @redis.connection.disconnect
       elsif @data_type == 'pattern_channel'
-        @redis.punsubscribe
-        @redis.quit
+        @redis.punsubscribe rescue nil
+        @redis.connection.disconnect
       end
+      @redis = nil
     end
-  rescue Redis::BaseError
-  ensure
-    @redis = nil
   end
 end # class LogStash::Inputs::Redis
