@@ -144,14 +144,12 @@ EOF
   private
   def list_listener(redis, output_queue)
 
+    item = redis.blpop(@key, 0, :timeout => 1)
+    return unless item # from timeout or other conditions
+
     # blpop returns the 'key' read from as well as the item result
     # we only care about the result (2nd item in the list).
-    item = redis.blpop(@key, 0, :timeout => 1)[1]
-
-    # blpop failed or .. something?
-    # TODO(sissel): handle the error
-    return if item.nil?
-    queue_event(item, output_queue)
+    queue_event(item[1], output_queue)
 
     # If @batch_count is 1, there's no need to continue.
     return if @batch_count == 1
