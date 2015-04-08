@@ -1,34 +1,35 @@
 require "logstash/devutils/rspec/spec_helper"
 require "redis"
+require "stud/try"
 
 def populate(key, event_count)
   require "logstash/event"
   redis = Redis.new(:host => "localhost")
   event_count.times do |value|
     event = LogStash::Event.new("sequence" => value)
-    Stud::try(10.times) do
+    Stud.try(10.times) do
       redis.rpush(key, event.to_json)
     end
   end
 end
 
-def process(pipeline, queue, event_count)
-  sequence = 0
-  Thread.new { pipeline.run }
-  event_count.times do |i|
-    event = queue.pop
+def process(conf, event_count)
+  events = input(conf) do |pipeline, queue|
+    event_count.times.map{queue.pop}
+  end
+
+  events.each_with_index do |event, i|
     insist { event["sequence"] } == i
   end
-  pipeline.shutdown
 end # process
 
 describe "inputs/redis", :redis => true do
-  
 
-  describe "read events from a list" do
+  it "should read events from a list" do
     key = 10.times.collect { rand(10).to_s }.join("")
     event_count = 1000 + rand(50)
-    config <<-CONFIG
+    # event_count = 100
+    conf = <<-CONFIG
       input {
         redis {
           type => "blah"
@@ -38,15 +39,14 @@ describe "inputs/redis", :redis => true do
       }
     CONFIG
 
-    before(:each) { populate(key, event_count) }
-
-    input { |pipeline, queue| process(pipeline, queue, event_count) }
+    populate(key, event_count)
+    process(conf, event_count)
   end
 
-  describe "read events from a list with batch_count=5" do
+  it "should read events from a list using batch_count" do
     key = 10.times.collect { rand(10).to_s }.join("")
     event_count = 1000 + rand(50)
-    config <<-CONFIG
+    conf = <<-CONFIG
       input {
         redis {
           type => "blah"
@@ -57,7 +57,7 @@ describe "inputs/redis", :redis => true do
       }
     CONFIG
 
-    before(:each) { populate(key, event_count) }
-    input { |pipeline, queue| process(pipeline, queue, event_count) }
+    populate(key, event_count)
+    process(conf, event_count)
   end
 end
