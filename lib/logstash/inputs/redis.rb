@@ -30,6 +30,9 @@ class LogStash::Inputs::Redis < LogStash::Inputs::Threadable
   # The port to connect on.
   config :port, :validate => :number, :default => 6379
 
+  # The socket to connect on.
+  config :path, :validate => :string, :default => ""
+
   # The Redis database number.
   config :db, :validate => :number, :default => 0
 
@@ -93,13 +96,22 @@ class LogStash::Inputs::Redis < LogStash::Inputs::Threadable
 
   private
   def connect
-    redis = Redis.new(
-      :host => @host,
-      :port => @port,
-      :timeout => @timeout,
-      :db => @db,
-      :password => @password.nil? ? nil : @password.value
-    )
+    if @path != ''
+      redis = Redis.new(
+        :path => @path,
+        :timeout => @timeout,
+        :db => @db,
+        :password => @password.nil? ? nil : @password.value
+      )
+    else 
+      redis = Redis.new(
+        :host => @host,
+        :port => @port,
+        :timeout => @timeout,
+        :db => @db,
+        :password => @password.nil? ? nil : @password.value
+      )
+    end
     load_batch_script(redis) if @data_type == 'list' && (@batch_count > 1)
     return redis
   end # def connect
