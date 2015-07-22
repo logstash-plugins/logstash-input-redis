@@ -196,7 +196,7 @@ describe Logstash::Inputs::Redis do
         end
       end
 
-      context 'real redis' do
+      context 'real redis', :redis => true do
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
           rt = run_it_thread(instance)
@@ -223,7 +223,7 @@ describe Logstash::Inputs::Redis do
         end
       end
 
-      context 'real redis' do
+      context 'real redis', :redis => true do
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
           rt = run_it_thread(instance)
