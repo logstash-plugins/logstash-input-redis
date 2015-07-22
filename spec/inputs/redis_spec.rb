@@ -3,14 +3,6 @@ require "redis"
 require "stud/try"
 require 'logstash/inputs/redis'
 
-# unless defined? Redis
-#   module Redis end
-# end
-
-# unless defined? Redis::BaseError
-#   Redis::BaseError = Class.new(RuntimeError)
-# end
-
 def populate(key, event_count)
   require "logstash/event"
   redis = Redis.new(:host => "localhost")
@@ -83,6 +75,7 @@ describe Logstash::Inputs::Redis do
   let(:data_type) { 'list' }
   let(:cfg) { {'key' => 'foo', 'data_type' => data_type} }
   let(:quit_calls) { [:quit] }
+  let(:accumulator) { [] }
 
   subject do
     described_class.new(cfg).add_external_redis_builder(builder)
@@ -93,7 +86,6 @@ describe Logstash::Inputs::Redis do
       expect {subject.register}.not_to raise_error
     end
   end
-
 
   context 'runtime for list data_type' do
     before do
@@ -111,8 +103,6 @@ describe Logstash::Inputs::Redis do
         expect {subject.teardown}.not_to raise_error
       end
     end
-
-    let(:accumulator) { [] }
 
     it 'calling the run method, adds events to the queue' do
       expect(redis).to receive(:blpop).at_least(:once).and_return(['foo', 'l1'])
@@ -165,14 +155,12 @@ describe Logstash::Inputs::Redis do
 
     def teardown_thread(inst, rt)
       Thread.new(inst, rt) do |subj, runner|
-        sleep 0.5 # allow the messages through
+        sleep 0.4 # allow the messages through
         runner.raise(LogStash::ShutdownSignal)
         subj.teardown
       end
     end
 
-
-    let(:accumulator) { [] }
     let(:instance) do
       inst = described_class.new(cfg)
       inst.register
@@ -188,8 +176,7 @@ describe Logstash::Inputs::Redis do
 
     before(:example, type: :mocked) do
       expect(redis).to receive(:connected?).and_return(connected.last)
-      expect(connection).to receive(:disconnect)
-      expect(redis).to receive(:publish).with('foo', described_class::REDIS_INPUT_POISON_MSG)
+      expect(connection).to receive(:unsubscribe)
 
       quit_calls.each do |call|
         expect(redis).to receive(call).at_most(:once)

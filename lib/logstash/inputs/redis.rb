@@ -60,9 +60,6 @@ module Logstash module Inputs class Redis < LogStash::Inputs::Threadable
 
   public
   # public API
-
-  REDIS_INPUT_POISON_MSG = '}-{ poison message from teardown }-{'.freeze
-
   # use to store a proc that can provide a redis instance or mock
   def add_external_redis_builder(builder) #callable
     @redis_builder = builder
@@ -282,24 +279,14 @@ EOF
   # private
   def subscribe_teardown
     return if @redis.nil? || !@redis.connected?
-
-    # the underlying client in redis is blocked on subscribe
-    # need new redis instance, send poison message, causes
-    # an unsubscribe
-    publish_poison_message
-
     # if its a SubscribedClient then:
-    # a) the poison_message did not work
-    # b) it does not have a disconnect method (yet)
-    if @redis.client.is_a?(::Redis::Client)
+    # it does not have a disconnect method (yet)
+    if @redis.client.is_a?(::Redis::SubscribedClient)
+      @redis.client.unsubscribe
+    else
       @redis.client.disconnect
     end
     @redis = nil
-  end
-
-  # private
-  def publish_poison_message
-    new_redis_instance.publish(@key, REDIS_INPUT_POISON_MSG)
   end
 
   # private
@@ -331,12 +318,7 @@ EOF
       end
 
       on.message do |channel, message|
-        if message != REDIS_INPUT_POISON_MSG
-          queue_event(message, output_queue)
-        end
-        if shutting_down?
-          @redis.unsubscribe(@key)
-        end
+        queue_event(message, output_queue)
       end
 
       on.unsubscribe do |channel, count|
@@ -359,12 +341,7 @@ EOF
       end
 
       on.pmessage do |pattern, channel, message|
-        if message != REDIS_INPUT_POISON_MSG
-          queue_event(message, output_queue)
-        end
-        if shutting_down?
-          @redis.punsubscribe(@key)
-        end
+        queue_event(message, output_queue)
       end
 
       on.punsubscribe do |channel, count|
