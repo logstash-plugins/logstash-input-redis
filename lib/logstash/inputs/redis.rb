@@ -15,7 +15,7 @@ require "logstash/inputs/threadable"
 # `batch_count` note: If you use the `batch_count` setting, you *must* use a Redis version 2.6.0 or
 # newer. Anything older does not support the operations used by batching.
 #
-module Logstash module Inputs class Redis < LogStash::Inputs::Threadable
+module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 # class LogStash::Inputs::Redis < LogStash::Inputs::Threadable
 
   config_name "redis"
