@@ -67,7 +67,7 @@ end
 
 # unit tests ---------------------
 
-describe Logstash::Inputs::Redis do
+describe LogStash::Inputs::Redis do
   let(:redis) { double('redis') }
   let(:builder) { ->{ redis } }
   let(:connection) { double('redis_connection') }
