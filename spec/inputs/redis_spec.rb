@@ -78,7 +78,8 @@ describe LogStash::Inputs::Redis do
   let(:accumulator) { [] }
 
   subject do
-    described_class.new(cfg).add_external_redis_builder(builder)
+    LogStash::Plugin.lookup("input", "redis")
+      .new(cfg).add_external_redis_builder(builder)
   end
 
   context 'construction' do
