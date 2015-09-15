@@ -103,13 +103,13 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     # just switch on data_type once
     if @data_type == 'list' || @data_type == 'dummy'
       @run_method = method(:list_runner)
-      @close_method = method(:list_close)
+      @stop_method = method(:list_stop)
     elsif @data_type == 'channel'
       @run_method = method(:channel_runner)
-      @close_method = method(:subscribe_close)
+      @stop_method = method(:subscribe_stop)
     elsif @data_type == 'pattern_channel'
       @run_method = method(:pattern_channel_runner)
-      @close_method = method(:subscribe_close)
+      @stop_method = method(:subscribe_stop)
     end
 
     # TODO(sissel, boertje): set @identity directly when @name config option is removed.
@@ -123,9 +123,8 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     # ignore and quit
   end # def run
 
-  def close
-    @shutdown_requested = true
-    @close_method.call
+  def stop
+    @stop_method.call
   end
 
   # private methods -----------------------------
@@ -192,26 +191,13 @@ EOF
         decorate(event)
         output_queue << event
       end
-    rescue LogStash::ShutdownSignal => e
-      # propagate up
-      raise(e)
     rescue => e # parse or event creation error
       @logger.error("Failed to create event", :message => msg, :exception => e, :backtrace => e.backtrace);
     end
   end
 
   # private
-  def shutting_down?
-    @shutdown_requested
-  end
-
-  # private
-  def running?
-    !@shutdown_requested
-  end
-
-  # private
-  def list_close
+  def list_stop
     return if @redis.nil? || !@redis.connected?
 
     @redis.quit rescue nil
@@ -220,7 +206,7 @@ EOF
 
   # private
   def list_runner(output_queue)
-    while running?
+    while !stop?
       begin
         @redis ||= connect
         list_listener(@redis, output_queue)
@@ -228,6 +214,8 @@ EOF
         @logger.warn("Redis connection problem", :exception => e)
         # Reset the redis variable to trigger reconnect
         @redis = nil
+        # this sleep does not need to be stoppable as its
+        # in a while !stop? loop
         sleep 1
       end
     end
@@ -277,7 +265,7 @@ EOF
   end
 
   # private
-  def subscribe_close
+  def subscribe_stop
     return if @redis.nil? || !@redis.connected?
     # if its a SubscribedClient then:
     # it does not have a disconnect method (yet)
@@ -298,8 +286,8 @@ EOF
       @logger.warn("Redis connection problem", :exception => e)
       # Reset the redis variable to trigger reconnect
       @redis = nil
-      sleep 1
-      retry
+      Stud.stoppable_sleep(1) { stop? }
+      retry if !stop?
     end
   end
 
