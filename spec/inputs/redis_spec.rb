@@ -78,7 +78,8 @@ describe LogStash::Inputs::Redis do
   let(:accumulator) { [] }
 
   subject do
-    described_class.new(cfg).add_external_redis_builder(builder)
+    LogStash::Plugin.lookup("input", "redis")
+      .new(cfg).add_external_redis_builder(builder)
   end
 
   context 'construction' do
@@ -100,7 +101,7 @@ describe LogStash::Inputs::Redis do
         quit_calls.each do |call|
           expect(redis).not_to receive(call)
         end
-        expect {subject.close}.not_to raise_error
+        expect {subject.do_stop}.not_to raise_error
       end
     end
 
@@ -112,7 +113,7 @@ describe LogStash::Inputs::Redis do
 
       tt = Thread.new do
         sleep 0.01
-        subject.close
+        subject.do_stop
       end
 
       subject.run(accumulator)
@@ -130,10 +131,10 @@ describe LogStash::Inputs::Redis do
         expect(redis).to receive(call).at_most(:once)
       end
 
-      subject.close
+      subject.do_stop
       connected.push(false) #can't use let block here so push to array
-      expect {subject.close}.not_to raise_error
-      subject.close
+      expect {subject.do_stop}.not_to raise_error
+      subject.do_stop
     end
   end
 
@@ -188,11 +189,11 @@ describe LogStash::Inputs::Redis do
       let(:quit_calls) { [:unsubscribe, :connection] }
 
       context 'mocked redis' do
-        it 'multiple close calls, calls to redis once', type: :mocked do
-          subject.close
+        it 'multiple stop calls, calls to redis once', type: :mocked do
+          subject.do_stop
           connected.push(false) #can't use let block here so push to array
-          expect {subject.close}.not_to raise_error
-          subject.close
+          expect {subject.do_stop}.not_to raise_error
+          subject.do_stop
         end
       end
 
@@ -215,11 +216,11 @@ describe LogStash::Inputs::Redis do
       let(:quit_calls) { [:punsubscribe, :connection] }
 
       context 'mocked redis' do
-        it 'multiple close calls, calls to redis once', type: :mocked do
-          subject.close
+        it 'multiple stop calls, calls to redis once', type: :mocked do
+          subject.do_stop
           connected.push(false) #can't use let block here so push to array
-          expect {subject.close}.not_to raise_error
-          subject.close
+          expect {subject.do_stop}.not_to raise_error
+          subject.do_stop
         end
       end
 
@@ -238,4 +239,9 @@ describe LogStash::Inputs::Redis do
     end
   end
 
+  describe LogStash::Inputs::Redis do
+    it_behaves_like "an interruptible input plugin" do
+      let(:config) { {'key' => 'foo', 'data_type' => 'list'} }
+    end
+  end
 end
