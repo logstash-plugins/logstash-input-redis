@@ -103,13 +103,13 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     # just switch on data_type once
     if @data_type == 'list' || @data_type == 'dummy'
       @run_method = method(:list_runner)
-      @teardown_method = method(:list_teardown)
+      @close_method = method(:list_close)
     elsif @data_type == 'channel'
       @run_method = method(:channel_runner)
-      @teardown_method = method(:subscribe_teardown)
+      @close_method = method(:subscribe_close)
     elsif @data_type == 'pattern_channel'
       @run_method = method(:pattern_channel_runner)
-      @teardown_method = method(:subscribe_teardown)
+      @close_method = method(:subscribe_close)
     end
 
     # TODO(sissel, boertje): set @identity directly when @name config option is removed.
@@ -123,9 +123,9 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     # ignore and quit
   end # def run
 
-  def teardown
+  def close
     @shutdown_requested = true
-    @teardown_method.call
+    @close_method.call
   end
 
   # private methods -----------------------------
@@ -211,7 +211,7 @@ EOF
   end
 
   # private
-  def list_teardown
+  def list_close
     return if @redis.nil? || !@redis.connected?
 
     @redis.quit rescue nil
@@ -277,7 +277,7 @@ EOF
   end
 
   # private
-  def subscribe_teardown
+  def subscribe_close
     return if @redis.nil? || !@redis.connected?
     # if its a SubscribedClient then:
     # it does not have a disconnect method (yet)

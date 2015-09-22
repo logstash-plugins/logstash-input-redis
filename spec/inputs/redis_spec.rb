@@ -92,7 +92,7 @@ describe LogStash::Inputs::Redis do
       subject.register
     end
 
-    context 'teardown when redis is unset' do
+    context 'close when redis is unset' do
       let(:quit_calls) { [:quit, :unsubscribe, :punsubscribe, :connection, :disconnect!] }
 
       it 'does not attempt to quit' do
@@ -100,7 +100,7 @@ describe LogStash::Inputs::Redis do
         quit_calls.each do |call|
           expect(redis).not_to receive(call)
         end
-        expect {subject.teardown}.not_to raise_error
+        expect {subject.close}.not_to raise_error
       end
     end
 
@@ -112,7 +112,7 @@ describe LogStash::Inputs::Redis do
 
       tt = Thread.new do
         sleep 0.01
-        subject.teardown
+        subject.close
       end
 
       subject.run(accumulator)
@@ -122,7 +122,7 @@ describe LogStash::Inputs::Redis do
       expect(accumulator.size).to be > 0
     end
 
-    it 'multiple teardown calls, calls to redis once' do
+    it 'multiple close calls, calls to redis once' do
       subject.use_redis(redis)
       allow(redis).to receive(:blpop).and_return(['foo', 'l1'])
       expect(redis).to receive(:connected?).and_return(connected.last)
@@ -130,10 +130,10 @@ describe LogStash::Inputs::Redis do
         expect(redis).to receive(call).at_most(:once)
       end
 
-      subject.teardown
+      subject.close
       connected.push(false) #can't use let block here so push to array
-      expect {subject.teardown}.not_to raise_error
-      subject.teardown
+      expect {subject.close}.not_to raise_error
+      subject.close
     end
   end
 
@@ -153,11 +153,11 @@ describe LogStash::Inputs::Redis do
       end
     end
 
-    def teardown_thread(inst, rt)
+    def close_thread(inst, rt)
       Thread.new(inst, rt) do |subj, runner|
         sleep 0.4 # allow the messages through
         runner.raise(LogStash::ShutdownSignal)
-        subj.teardown
+        subj.close
       end
     end
 
@@ -188,11 +188,11 @@ describe LogStash::Inputs::Redis do
       let(:quit_calls) { [:unsubscribe, :connection] }
 
       context 'mocked redis' do
-        it 'multiple teardown calls, calls to redis once', type: :mocked do
-          subject.teardown
+        it 'multiple close calls, calls to redis once', type: :mocked do
+          subject.close
           connected.push(false) #can't use let block here so push to array
-          expect {subject.teardown}.not_to raise_error
-          subject.teardown
+          expect {subject.close}.not_to raise_error
+          subject.close
         end
       end
 
@@ -203,7 +203,7 @@ describe LogStash::Inputs::Redis do
           #simulate the other system thread
           publish_thread(instance.new_redis_instance, 'c').join
           #simulate the pipeline thread
-          teardown_thread(instance, rt).join
+          close_thread(instance, rt).join
 
           expect(accumulator.size).to eq(2)
         end
@@ -215,11 +215,11 @@ describe LogStash::Inputs::Redis do
       let(:quit_calls) { [:punsubscribe, :connection] }
 
       context 'mocked redis' do
-        it 'multiple teardown calls, calls to redis once', type: :mocked do
-          subject.teardown
+        it 'multiple close calls, calls to redis once', type: :mocked do
+          subject.close
           connected.push(false) #can't use let block here so push to array
-          expect {subject.teardown}.not_to raise_error
-          subject.teardown
+          expect {subject.close}.not_to raise_error
+          subject.close
         end
       end
 
@@ -230,7 +230,7 @@ describe LogStash::Inputs::Redis do
           #simulate the other system thread
           publish_thread(instance.new_redis_instance, 'pc').join
           #simulate the pipeline thread
-          teardown_thread(instance, rt).join
+          close_thread(instance, rt).join
 
           expect(accumulator.size).to eq(2)
         end
