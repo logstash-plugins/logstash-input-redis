@@ -22,10 +22,6 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
   default :codec, "json"
 
-  # The `name` configuration is used for logging in case there are multiple instances.
-  # This feature has no real function and will be removed in future versions.
-  config :name, :validate => :string, :default => "default", :deprecated => true
-
   # The hostname of your Redis server.
   config :host, :validate => :string, :default => "127.0.0.1"
 
@@ -40,10 +36,6 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
   # Password to authenticate with. There is no authentication by default.
   config :password, :validate => :password
-
-  # The name of the Redis queue (we'll use BLPOP against this).
-  # TODO: remove soon.
-  config :queue, :validate => :string, :deprecated => true
 
   # The name of a Redis list or channel.
   # TODO: change required to true
