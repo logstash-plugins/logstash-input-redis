@@ -49,6 +49,36 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # TODO: change required to true
   config :key, :validate => :string, :required => false
 
+  # The value of the renamed redis BLPOP command. Note that this uses a
+  # non-public api in the ruby redis client and support may change in
+  # the future
+  config :blpop, :validate => :string, :required => false
+
+  # The value of the renamed redis EVALSHA command. Note that this uses a
+  # non-public api in the ruby redis client and support may change in
+  # the future
+  config :evalsha, :validate => :string, :required => false
+
+  # The value of the renamed redis LPOP command. Note that this uses a
+  # non-public api in the ruby redis client and support may change in
+  # the future
+  config :lpop, :validate => :string, :required => false
+
+  # The value of the renamed redis SCRIPT command. Note that this uses a
+  # non-public api in the ruby redis client and support may change in
+  # the future
+  config :script, :validate => :string, :required => false
+
+  # The value of the renamed redis SUBSCRIBE command. Note that this uses a
+  # non-public api in the ruby redis client and support may change in
+  # the future
+  config :subscribe, :validate => :string, :required => false
+
+  # The value of the renamed redis PSUBSCRIBE command. Note that this uses a
+  # non-public api in the ruby redis client and support may change in
+  # the future
+  config :psubscribe, :validate => :string, :required => false
+
   # Specify either list or channel.  If `redis\_type` is `list`, then we will BLPOP the
   # key.  If `redis\_type` is `channel`, then we will SUBSCRIBE to the key.
   # If `redis\_type` is `pattern_channel`, then we will PSUBSCRIBE to the key.
@@ -158,6 +188,13 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # private
   def connect
     redis = new_redis_instance
+    command_map = redis.client.command_map
+    command_map[:blpop] = @blpop if @blpop
+    command_map[:evalsha] = @evalsha if @evalsha
+    command_map[:lpop] = @lpop if @lpop
+    command_map[:script] = @script if @script
+    command_map[:subscribe] = @subscribe if @subscribe
+    command_map[:psubscribe] = @psubscribe if @psubscribe
     load_batch_script(redis) if batched? && is_list_type?
     redis
   end # def connect
@@ -172,7 +209,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
           local length = redis.call('llen',KEYS[1])
           if length < i then i = length end
           while (i > 0) do
-            local item = redis.call("lpop", KEYS[1])
+            local item = redis.call("#{@lpop || 'lpop'}", KEYS[1])
             if (not item) then
               break
             end

@@ -76,6 +76,7 @@ describe LogStash::Inputs::Redis do
   let(:cfg) { {'key' => 'foo', 'data_type' => data_type} }
   let(:quit_calls) { [:quit] }
   let(:accumulator) { [] }
+  let(:command_map) { {} }
 
   subject do
     LogStash::Plugin.lookup("input", "redis")
@@ -85,6 +86,49 @@ describe LogStash::Inputs::Redis do
   context 'construction' do
     it 'registers the input' do
       expect {subject.register}.not_to raise_error
+    end
+  end
+
+  context 'renamed redis commands' do
+    let(:cfg) { {'key' => 'foo', 'data_type' => data_type, 'blpop' => 'test blpop', 'evalsha' => 'test evalsha', 'lpop' => 'test lpop', 'script' => 'test script', 'subscribe' => 'test subscribe', 'psubscribe' => 'test psubscribe', 'batch_count' => 2} }
+    
+    before do
+      subject.register
+      allow(redis).to receive(:blpop)
+      allow(redis).to receive(:connected?)
+      allow(redis).to receive(:client).and_return(connection)
+      allow(connection).to receive(:command_map).and_return(command_map)
+    end
+
+    it 'sets the renamed commands in the command map' do
+      allow(redis).to receive(:script)
+    
+      connect
+      
+      expect(command_map[:blpop]).to eq cfg['blpop']
+      expect(command_map[:evalsha]).to eq cfg['evalsha']
+      expect(command_map[:lpop]).to eq cfg['lpop']
+      expect(command_map[:script]).to eq cfg['script']
+      expect(command_map[:subscribe]).to eq cfg['subscribe']
+      expect(command_map[:psubscribe]).to eq cfg['psubscribe']
+    end
+    
+    it 'loads the batch script with the renamed command' do
+      capture = nil
+      allow(redis).to receive(:script) { |load, lua_script| capture = lua_script }
+      
+      connect
+      
+      expect(capture).to include "redis.call(\"#{cfg['lpop']}\", KEYS[1])"
+    end
+    
+    def connect
+      tt = Thread.new do
+        sleep 0.01
+        subject.do_stop
+      end
+      subject.run(accumulator)
+      tt.join
     end
   end
 
@@ -109,6 +153,8 @@ describe LogStash::Inputs::Redis do
       expect(redis).to receive(:blpop).at_least(:once).and_return(['foo', 'l1'])
 
       allow(redis).to receive(:connected?).and_return(connected.last)
+      allow(redis).to receive(:client).and_return(connection)
+      allow(connection).to receive(:command_map).and_return(command_map)
       allow(redis).to receive(:quit)
 
       tt = Thread.new do
