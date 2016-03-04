@@ -56,7 +56,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   config :data_type, :validate => [ "list", "channel", "pattern_channel" ], :required => false
 
   # The number of events to return from Redis using EVAL.
-  config :batch_count, :validate => :number, :default => 1
+  config :batch_count, :validate => :number, :default => 100
 
   public
   # public API
