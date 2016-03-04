@@ -2,6 +2,7 @@
 require "logstash/namespace"
 require "logstash/inputs/base"
 require "logstash/inputs/threadable"
+require 'redis'
 
 # This input will read events from a Redis instance; it supports both Redis channels and lists.
 # The list command (BLPOP) used by Logstash is supported in Redis v1.3.1+, and
@@ -16,7 +17,7 @@ require "logstash/inputs/threadable"
 # newer. Anything older does not support the operations used by batching.
 #
 module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
-# class LogStash::Inputs::Redis < LogStash::Inputs::Threadable
+  BATCH_EMPTY_SLEEP = 0.25
 
   config_name "redis"
 
@@ -56,7 +57,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   config :data_type, :validate => [ "list", "channel", "pattern_channel" ], :required => false
 
   # The number of events to return from Redis using EVAL.
-  config :batch_count, :validate => :number, :default => 1
+  config :batch_count, :validate => :number, :default => 125
 
   public
   # public API
@@ -77,7 +78,6 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   end
 
   def register
-    require 'redis'
     @redis_url = "redis://#{@password}@#{@host}:#{@port}/#{@db}"
 
     # TODO remove after setting key and data_type to true
@@ -111,6 +111,8 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
       @run_method = method(:pattern_channel_runner)
       @stop_method = method(:subscribe_stop)
     end
+
+    @list_method = batched? ? method(:list_batch_listener) : method(:list_single_listener)
 
     # TODO(sissel, boertje): set @identity directly when @name config option is removed.
     @identity = @name != 'default' ? @name : "#{@redis_url} #{@data_type}:#{@key}"
@@ -165,21 +167,11 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # private
   def load_batch_script(redis)
     #A Redis Lua EVAL script to fetch a count of keys
-    #in case count is bigger than current items in queue whole queue will be returned without extra nil values
-    redis_script = <<EOF
-          local i = tonumber(ARGV[1])
-          local res = {}
-          local length = redis.call('llen',KEYS[1])
-          if length < i then i = length end
-          while (i > 0) do
-            local item = redis.call("lpop", KEYS[1])
-            if (not item) then
-              break
-            end
-            table.insert(res, item)
-            i = i-1
-          end
-          return res
+      redis_script = <<EOF
+        local batchsize = tonumber(ARGV[1])
+        local result = redis.call('lrange', KEYS[1], 0, batchsize)
+        redis.call('ltrim', KEYS[1], batchsize + 1, -1)
+        return result
 EOF
     @redis_script_sha = redis.script(:load, redis_script)
   end
@@ -209,7 +201,7 @@ EOF
     while !stop?
       begin
         @redis ||= connect
-        list_listener(@redis, output_queue)
+        @list_method.call(@redis, output_queue)
       rescue ::Redis::BaseError => e
         @logger.warn("Redis connection problem", :exception => e)
         # Reset the redis variable to trigger reconnect
@@ -221,22 +213,15 @@ EOF
     end
   end
 
-  # private
-  def list_listener(redis, output_queue)
-
-    item = redis.blpop(@key, 0, :timeout => 1)
-    return unless item # from timeout or other conditions
-
-    # blpop returns the 'key' read from as well as the item result
-    # we only care about the result (2nd item in the list).
-    queue_event(item.last, output_queue)
-
-    # If @batch_count is 1, there's no need to continue.
-    return if !batched?
-
+  def list_batch_listener(redis, output_queue)
     begin
-      redis.evalsha(@redis_script_sha, [@key], [@batch_count-1]).each do |item|
+      results = redis.evalsha(@redis_script_sha, [@key], [@batch_count-1])
+      results.each do |item|
         queue_event(item, output_queue)
+      end
+
+      if results.size.zero?
+        sleep BATCH_EMPTY_SLEEP
       end
 
       # Below is a commented-out implementation of 'batch fetch'
@@ -253,6 +238,8 @@ EOF
         #queue_event(item, output_queue) if item
       #end
       # --- End commented out implementation of 'batch fetch'
+      # further to the above, the LUA script now uses lrange and trim
+      # which should further improve the efficiency of the script
     rescue ::Redis::CommandError => e
       if e.to_s =~ /NOSCRIPT/ then
         @logger.warn("Redis may have been restarted, reloading Redis batch EVAL script", :exception => e);
@@ -262,6 +249,15 @@ EOF
         raise e
       end
     end
+  end
+
+  def list_single_listener(redis, output_queue)
+    item = redis.blpop(@key, 0, :timeout => 1)
+    return unless item # from timeout or other conditions
+
+    # blpop returns the 'key' read from as well as the item result
+    # we only care about the result (2nd item in the list).
+    queue_event(item.last, output_queue)
   end
 
   # private

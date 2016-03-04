@@ -2,6 +2,7 @@ require "logstash/devutils/rspec/spec_helper"
 require "redis"
 require "stud/try"
 require 'logstash/inputs/redis'
+require 'securerandom'
 
 def populate(key, event_count)
   require "logstash/event"
@@ -19,17 +20,15 @@ def process(conf, event_count)
     event_count.times.map{queue.pop}
   end
 
-  events.each_with_index do |event, i|
-    insist { event["sequence"] } == i
-  end
-end # process
+  expect(events.map{|evt| evt["sequence"]}).to eq((0..event_count.pred).to_a)
+end
 
 # integration tests ---------------------
 
 describe "inputs/redis", :redis => true do
 
   it "should read events from a list" do
-    key = 10.times.collect { rand(10).to_s }.join("")
+    key = SecureRandom.hex
     event_count = 1000 + rand(50)
     # event_count = 100
     conf = <<-CONFIG
@@ -38,6 +37,7 @@ describe "inputs/redis", :redis => true do
           type => "blah"
           key => "#{key}"
           data_type => "list"
+          batch_count => 1
         }
       }
     CONFIG
@@ -46,8 +46,8 @@ describe "inputs/redis", :redis => true do
     process(conf, event_count)
   end
 
-  it "should read events from a list using batch_count" do
-    key = 10.times.collect { rand(10).to_s }.join("")
+  it "should read events from a list using batch_count (default 125)" do
+    key = SecureRandom.hex
     event_count = 1000 + rand(50)
     conf = <<-CONFIG
       input {
@@ -55,7 +55,6 @@ describe "inputs/redis", :redis => true do
           type => "blah"
           key => "#{key}"
           data_type => "list"
-          batch_count => #{rand(20)+1}
         }
       }
     CONFIG
@@ -73,7 +72,8 @@ describe LogStash::Inputs::Redis do
   let(:connection) { double('redis_connection') }
   let(:connected) { [true] }
   let(:data_type) { 'list' }
-  let(:cfg) { {'key' => 'foo', 'data_type' => data_type} }
+  let(:batch_count) { 1 }
+  let(:cfg) { {'key' => 'foo', 'data_type' => data_type, 'batch_count' => batch_count} }
   let(:quit_calls) { [:quit] }
   let(:accumulator) { [] }
 
@@ -121,6 +121,65 @@ describe LogStash::Inputs::Redis do
       tt.join
 
       expect(accumulator.size).to be > 0
+    end
+
+    context "when the batch size is greater than 1" do
+      let(:batch_count) { 10 }
+      let(:rates) { [] }
+
+      before do
+        allow(redis).to receive(:connected?).and_return(connected.last)
+        allow(redis).to receive(:script)
+        allow(redis).to receive(:quit)
+      end
+
+      it 'calling the run method, adds events to the queue' do
+        expect(redis).to receive(:evalsha).at_least(:once).and_return(['a', 'b'])
+
+        tt = Thread.new do
+          sleep 0.01
+          subject.do_stop
+        end
+
+        subject.run(accumulator)
+
+        tt.join
+        expect(accumulator.size).to be > 0
+      end
+    end
+
+    context "when there is no data" do
+      let(:batch_count) { 10 }
+      let(:rates) { [] }
+
+      it 'will throttle the loop' do
+        allow(redis).to receive(:evalsha) do
+          rates.unshift Time.now.to_f
+          []
+        end
+        allow(redis).to receive(:connected?).and_return(connected.last)
+        allow(redis).to receive(:script)
+        allow(redis).to receive(:quit)
+
+        tt = Thread.new do
+          sleep 1
+          subject.do_stop
+        end
+
+        subject.run(accumulator)
+
+        tt.join
+
+        inters = []
+        rates.each_cons(2) do |x, y|
+          inters << x - y
+        end
+
+        expect(accumulator.size).to eq(0)
+        inters.each do |delta|
+          expect(delta).to be_within(0.01).of(LogStash::Inputs::Redis::BATCH_EMPTY_SLEEP)
+        end
+      end
     end
 
     it 'multiple close calls, calls to redis once' do
