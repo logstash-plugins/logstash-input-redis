@@ -1,3 +1,5 @@
+# 2.0.4
+  - New dependency requirements for logstash-core for the 5.0 release
 ## 2.0.3
  - Changed default batch size to 125. Improve batch handling code. Add travis ci build with redis integration.
 
