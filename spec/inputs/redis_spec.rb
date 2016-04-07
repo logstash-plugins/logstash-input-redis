@@ -215,11 +215,18 @@ describe LogStash::Inputs::Redis do
 
     def close_thread(inst, rt)
       Thread.new(inst, rt) do |subj, runner|
-        sleep 0.4 # allow the messages through
+        # block for the messages
+        e1 = accumulator.pop
+        e2 = accumulator.pop
+        # put em back for the tests
+        accumulator.push(e1)
+        accumulator.push(e2)
         runner.raise(LogStash::ShutdownSignal)
         subj.close
       end
     end
+
+    let(:accumulator) { Queue.new }
 
     let(:instance) do
       inst = described_class.new(cfg)
@@ -227,14 +234,11 @@ describe LogStash::Inputs::Redis do
       inst
     end
 
-    before do
+    before(:example, type: :mocked) do
       subject.register
       subject.use_redis(redis)
       allow(connection).to receive(:is_a?).and_return(true)
       allow(redis).to receive(:client).and_return(connection)
-    end
-
-    before(:example, type: :mocked) do
       expect(redis).to receive(:connected?).and_return(connected.last)
       expect(connection).to receive(:unsubscribe)
 
