@@ -82,9 +82,39 @@ describe LogStash::Inputs::Redis do
       .new(cfg).add_external_redis_builder(builder)
   end
 
+
   context 'construction' do
+
     it 'registers the input' do
       expect {subject.register}.not_to raise_error
+    end
+
+    describe "default values" do
+      let(:config) do
+        cfg.merge({ "host" => "127.0.0.1"})
+      end
+
+      let(:input) { described_class.new(config) }
+
+      before(:each) do
+        input.register
+      end
+
+      it "use default port when not specified" do
+        expect(input.redis_url).to eq("redis://@127.0.0.1:6379/0")
+      end
+    end
+
+    describe "configuration options" do
+      it "raise an error with valid string host" do
+        config = cfg.merge({ "host" => "127.0.0.1:8080"})
+        expect{ described_class.new(config) }.not_to raise_error
+      end
+
+      it "raise an error with non valid hosts" do
+        config = cfg.merge({ "host" => [ "127.0.0.1:8080", "128.0.0.1:8081" ]})
+        expect{ described_class.new(config) }.to raise_error
+      end
     end
   end
 

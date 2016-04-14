@@ -2,6 +2,7 @@
 require "logstash/namespace"
 require "logstash/inputs/base"
 require "logstash/inputs/threadable"
+require "logstash/inputs/redis/common"
 require 'redis'
 
 # This input will read events from a Redis instance; it supports both Redis channels and lists.
@@ -19,6 +20,9 @@ require 'redis'
 module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   BATCH_EMPTY_SLEEP = 0.25
 
+
+  include RedisCommon
+
   config_name "redis"
 
   default :codec, "json"
@@ -26,12 +30,6 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # The `name` configuration is used for logging in case there are multiple instances.
   # This feature has no real function and will be removed in future versions.
   config :name, :validate => :string, :default => "default", :deprecated => true
-
-  # The hostname of your Redis server.
-  config :host, :validate => :string, :default => "127.0.0.1"
-
-  # The port to connect on.
-  config :port, :validate => :number, :default => 6379
 
   # The Redis database number.
   config :db, :validate => :number, :default => 0
@@ -78,7 +76,6 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   end
 
   def register
-    @redis_url = "redis://#{@password}@#{@host}:#{@port}/#{@db}"
 
     # TODO remove after setting key and data_type to true
     if @queue
@@ -115,7 +112,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     @list_method = batched? ? method(:list_batch_listener) : method(:list_single_listener)
 
     # TODO(sissel, boertje): set @identity directly when @name config option is removed.
-    @identity = @name != 'default' ? @name : "#{@redis_url} #{@data_type}:#{@key}"
+    @identity = @name != 'default' ? @name : "#{redis_url} #{@data_type}:#{@key}"
     @logger.info("Registering Redis", :identity => @identity)
   end # def register
 
@@ -129,6 +126,9 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     @stop_method.call
   end
 
+  def redis_url
+    "redis://#{@password}@#{connection_host}/#{@db}"
+  end
   # private methods -----------------------------
   private
 
