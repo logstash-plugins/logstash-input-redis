@@ -43,17 +43,14 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   config :password, :validate => :password
 
   # The name of the Redis queue (we'll use BLPOP against this).
-  # TODO: remove soon.
   config :queue, :validate => :string, :deprecated => true
 
   # The name of a Redis list or channel.
-  # TODO: change required to true
   config :key, :validate => :string, :required => false
 
   # Specify either list or channel.  If `redis\_type` is `list`, then we will BLPOP the
   # key.  If `redis\_type` is `channel`, then we will SUBSCRIBE to the key.
   # If `redis\_type` is `pattern_channel`, then we will PSUBSCRIBE to the key.
-  # TODO: change required to true
   config :data_type, :validate => [ "list", "channel", "pattern_channel" ], :required => false
 
   # The number of events to return from Redis using EVAL.
