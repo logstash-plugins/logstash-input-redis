@@ -20,7 +20,7 @@ def process(conf, event_count)
     event_count.times.map{queue.pop}
   end
 
-  expect(events.map{|evt| evt["sequence"]}).to eq((0..event_count.pred).to_a)
+  expect(events.map{|evt| evt.get("sequence")}).to eq((0..event_count.pred).to_a)
 end
 
 # integration tests ---------------------

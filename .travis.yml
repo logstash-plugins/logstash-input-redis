@@ -1,12 +1,14 @@
+---
 services:
-  - redis-server
+- redis-server
 sudo: false
 language: ruby
 cache: bundler
 rvm:
-  - jruby-1.7.24
-jdk:
-  - oraclejdk8
+- jruby-1.7.25
+jdk: oraclejdk8
 script:
-  - bundle exec rspec spec --order rand
-  - bundle exec rspec spec --order rand -t redis
+- bundle exec rspec spec --order rand
+- bundle exec rspec spec --order rand -t redis
+before_install:
+- git clone -b feature/event_interface https://github.com/elastic/logstash
