@@ -10,5 +10,4 @@ jdk: oraclejdk8
 script:
 - bundle exec rspec spec --order rand
 - bundle exec rspec spec --order rand -t redis
-before_install:
-- git clone -b feature/event_interface https://github.com/elastic/logstash
+before_install: []
