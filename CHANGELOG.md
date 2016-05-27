@@ -1,4 +1,4 @@
-## 4.0.0
+## 3.1.0
  - breaking,config: Remove deprecated config `queue`. Please use `key` and `data_type`.
  - breaking,config: Remove deprecated config `name`.
 
