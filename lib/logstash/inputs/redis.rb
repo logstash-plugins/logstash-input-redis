@@ -23,10 +23,6 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
   default :codec, "json"
 
-  # The `name` configuration is used for logging in case there are multiple instances.
-  # This feature has no real function and will be removed in future versions.
-  config :name, :validate => :string, :default => "default", :deprecated => true
-
   # The hostname of your Redis server.
   config :host, :validate => :string, :default => "127.0.0.1"
 
@@ -42,16 +38,13 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # Password to authenticate with. There is no authentication by default.
   config :password, :validate => :password
 
-  # The name of the Redis queue (we'll use BLPOP against this).
-  config :queue, :validate => :string, :deprecated => true
-
   # The name of a Redis list or channel.
-  config :key, :validate => :string, :required => false
+  config :key, :validate => :string, :required => true
 
   # Specify either list or channel.  If `redis\_type` is `list`, then we will BLPOP the
   # key.  If `redis\_type` is `channel`, then we will SUBSCRIBE to the key.
   # If `redis\_type` is `pattern_channel`, then we will PSUBSCRIBE to the key.
-  config :data_type, :validate => [ "list", "channel", "pattern_channel" ], :required => false
+  config :data_type, :validate => [ "list", "channel", "pattern_channel" ], :required => true
 
   # The number of events to return from Redis using EVAL.
   config :batch_count, :validate => :number, :default => 125
@@ -77,24 +70,6 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   def register
     @redis_url = "redis://#{@password}@#{@host}:#{@port}/#{@db}"
 
-    # TODO remove after setting key and data_type to true
-    if @queue
-      if @key || @data_type
-        raise RuntimeError.new(
-          "Cannot specify queue parameter and key or data_type"
-        )
-      end
-      @key = @queue
-      @data_type = 'list'
-    end
-
-    if !@key || !@data_type
-      raise RuntimeError.new(
-        "Must define queue, or key and data_type parameters"
-      )
-    end
-    # end TODO
-
     @redis_builder ||= method(:internal_redis_builder)
 
     # just switch on data_type once
@@ -111,8 +86,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
     @list_method = batched? ? method(:list_batch_listener) : method(:list_single_listener)
 
-    # TODO(sissel, boertje): set @identity directly when @name config option is removed.
-    @identity = @name != 'default' ? @name : "#{@redis_url} #{@data_type}:#{@key}"
+    @identity = "#{@redis_url} #{@data_type}:#{@key}"
     @logger.info("Registering Redis", :identity => @identity)
   end # def register
 
