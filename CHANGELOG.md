@@ -1,3 +1,6 @@
+## 3.3.0
+  - Add channel to the event #46
+
 ## 3.2.2
   - Docs: Set the default_codec doc attribute.
 
