@@ -148,10 +148,11 @@ EOF
   end
 
   # private
-  def queue_event(msg, output_queue)
+  def queue_event(msg, output_queue, channel=nil)
     begin
       @codec.decode(msg) do |event|
         decorate(event)
+        event.set("redis_channel", channel) if !channel.nil?
         output_queue << event
       end
     rescue => e # parse or event creation error
@@ -273,7 +274,7 @@ EOF
       end
 
       on.message do |channel, message|
-        queue_event(message, output_queue)
+        queue_event(message, output_queue, channel)
       end
 
       on.unsubscribe do |channel, count|
@@ -296,7 +297,7 @@ EOF
       end
 
       on.pmessage do |pattern, channel, message|
-        queue_event(message, output_queue)
+        queue_event(message, output_queue, channel)
       end
 
       on.punsubscribe do |channel, count|
