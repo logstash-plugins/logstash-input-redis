@@ -133,6 +133,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   def connect
     redis = new_redis_instance
     load_batch_script(redis) if batched? && is_list_type?
+    metric.increment(:connections)
     redis
   end # def connect
 
