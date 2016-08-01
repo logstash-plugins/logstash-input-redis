@@ -1,3 +1,6 @@
+## 3.2.0
+ - Add metrics support to track number of events, connections, including errors (based on exception being raised).
+
 ## 3.1.1
   - Relax constraint on logstash-core-plugin-api to >= 1.60 <= 2.99
 
