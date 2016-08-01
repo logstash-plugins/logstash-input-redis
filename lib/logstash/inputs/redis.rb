@@ -88,6 +88,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
     @identity = "#{@redis_url} #{@data_type}:#{@key}"
     @logger.info("Registering Redis", :identity => @identity)
+    @metric_errors = metric.namespace(:errors)
   end # def register
 
   def run(output_queue)
@@ -151,11 +152,13 @@ EOF
   def queue_event(msg, output_queue)
     begin
       @codec.decode(msg) do |event|
+        metric.increment(:events)
         decorate(event)
         output_queue << event
       end
     rescue => e # parse or event creation error
       @logger.error("Failed to create event", :message => msg, :exception => e, :backtrace => e.backtrace);
+      @metric_errors.increment(:create_events)
     end
   end
 
@@ -175,6 +178,7 @@ EOF
         @list_method.call(@redis, output_queue)
       rescue ::Redis::BaseError => e
         @logger.warn("Redis connection problem", :exception => e)
+        @metric_errors.increment(:connection)
         # Reset the redis variable to trigger reconnect
         @redis = nil
         # this sleep does not need to be stoppable as its
@@ -212,6 +216,7 @@ EOF
       # further to the above, the LUA script now uses lrange and trim
       # which should further improve the efficiency of the script
     rescue ::Redis::CommandError => e
+      @metric_errors.increment(:command)
       if e.to_s =~ /NOSCRIPT/ then
         @logger.warn("Redis may have been restarted, reloading Redis batch EVAL script", :exception => e);
         load_batch_script(redis)
@@ -251,6 +256,7 @@ EOF
       yield
     rescue ::Redis::BaseError => e
       @logger.warn("Redis connection problem", :exception => e)
+      @metric_errors.increment(:connection)
       # Reset the redis variable to trigger reconnect
       @redis = nil
       Stud.stoppable_sleep(1) { stop? }
@@ -270,6 +276,7 @@ EOF
     @redis.subscribe(@key) do |on|
       on.subscribe do |channel, count|
         @logger.info("Subscribed", :channel => channel, :count => count)
+        metric.increment(:channels)
       end
 
       on.message do |channel, message|
@@ -278,6 +285,7 @@ EOF
 
       on.unsubscribe do |channel, count|
         @logger.info("Unsubscribed", :channel => channel, :count => count)
+        metric.decrement(:channels)
       end
     end
   end
@@ -293,6 +301,7 @@ EOF
     @redis.psubscribe @key do |on|
       on.psubscribe do |channel, count|
         @logger.info("Subscribed", :channel => channel, :count => count)
+        metric.increment(:pattern_channels)
       end
 
       on.pmessage do |pattern, channel, message|
@@ -301,6 +310,7 @@ EOF
 
       on.punsubscribe do |channel, count|
         @logger.info("Unsubscribed", :channel => channel, :count => count)
+        metric.decrement(:pattern_channels)
       end
     end
   end
