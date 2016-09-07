@@ -49,6 +49,10 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # The number of events to return from Redis using EVAL.
   config :batch_count, :validate => :number, :default => 125
 
+  config :sentinel_hosts, :validate => :array
+
+  config :master, :validate => :string, :default => "mymaster"
+
   public
   # public API
   # use to store a proc that can provide a redis instance or mock
@@ -68,8 +72,6 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   end
 
   def register
-    @redis_url = "redis://#{@password}@#{@host}:#{@port}/#{@db}"
-
     @redis_builder ||= method(:internal_redis_builder)
 
     # just switch on data_type once
@@ -86,9 +88,16 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
     @list_method = batched? ? method(:list_batch_listener) : method(:list_single_listener)
 
-    @identity = "#{@redis_url} #{@data_type}:#{@key}"
+    @identity = identity
     @logger.info("Registering Redis", :identity => @identity)
   end # def register
+
+  def identity
+    if @sentinel_hosts
+      return "redis-sentinel://#{@password} #{$sentinel_hosts} #{@db} #{@data_type}:#{@key}"
+    end
+    "redis://#{@password}@#{@host}:#{@port}/#{@db} #{@data_type}:#{@key}"
+  end
 
   def run(output_queue)
     @run_method.call(output_queue)
@@ -115,8 +124,6 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # private
   def redis_params
     {
-      :host => @host,
-      :port => @port,
       :timeout => @timeout,
       :db => @db,
       :password => @password.nil? ? nil : @password.value
@@ -125,7 +132,25 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
   # private
   def internal_redis_builder
-    ::Redis.new(redis_params)
+    if @sentinel_hosts
+      params = redis_params
+      @logger.info('Connecting to sentinel')
+      hosts = []
+      for sentinel_host in @sentinel_hosts
+        host, port = sentinel_host.split(":")
+        unless port
+          port = @sentinel_port
+        end
+        hosts.push({:host => host, :port => port})
+      end
+      params[:url] = 'redis://'+@master
+      params[:sentinels] = hosts
+      params[:role] = :master
+    else
+      params[:host] = @current_host
+      params[:port] = @current_port
+    end
+    ::Redis.new(params)
   end
 
   # private
