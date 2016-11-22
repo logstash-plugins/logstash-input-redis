@@ -17,8 +17,6 @@ require 'redis'
 # newer. Anything older does not support the operations used by batching.
 #
 module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
-  BATCH_EMPTY_SLEEP = 0.25
-
   config_name "redis"
 
   default :codec, "json"
@@ -48,6 +46,9 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
   # The number of events to return from Redis using EVAL.
   config :batch_count, :validate => :number, :default => 125
+
+  # The number of seconds to sleep if Redis list is empty
+  config :sleep_sec, :validate => :number, :default => 0.25
 
   public
   # public API
@@ -192,7 +193,7 @@ EOF
       end
 
       if results.size.zero?
-        sleep BATCH_EMPTY_SLEEP
+        sleep @sleep_sec
       end
 
       # Below is a commented-out implementation of 'batch fetch'
