@@ -237,7 +237,11 @@ EOF
     # if its a SubscribedClient then:
     # it does not have a disconnect method (yet)
     if @redis.client.is_a?(::Redis::SubscribedClient)
-      @redis.client.unsubscribe
+      if @data_type == 'pattern_channel'
+        @redis.client.punsubscribe
+      else
+        @redis.client.unsubscribe
+      end
     else
       @redis.client.disconnect
     end
