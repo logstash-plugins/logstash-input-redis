@@ -1,3 +1,6 @@
+## 3.1.2
+  - use correct unsubscribe method for channel_listener data type
+
 ## 3.1.1
   - Relax constraint on logstash-core-plugin-api to >= 1.60 <= 2.99
 
