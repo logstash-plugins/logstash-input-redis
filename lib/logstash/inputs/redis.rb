@@ -4,8 +4,7 @@ require "logstash/inputs/base"
 require "logstash/inputs/threadable"
 require 'redis'
 
-# This input will read events from a Redis instance; it supports both Redis channels and lists
-# with or without priority mode.
+# This input will read events from a Redis instance; it supports both Redis channels, lists and sortedsets.
 #
 # The list command (BLPOP) used by Logstash is supported in Redis v1.3.1+, and
 # the channel commands used by Logstash are found in Redis v1.3.8+.
@@ -13,7 +12,7 @@ require 'redis'
 # and stability will be found in more recent stable versions.  Versions 2.6.0+
 # are recommended.
 #
-# The priority 'list' commands (ZREMRANGEBYRANK, ZRANGE, ZREVRANGE) used by Logstash are supported
+# The sortedset commands (ZREMRANGEBYRANK, ZRANGE, ZREVRANGE) used by Logstash are supported
 # in Redis v2.0.0+
 #
 # For more information about Redis, see <http://redis.io/>
@@ -46,7 +45,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # The name of a Redis list or channel.
   config :key, :validate => :string, :required => true
 
-  # Pop high scores item first in sortedset. No effect for data_type
+  # Pop high scores item first in sortedset. No effect for other data types
   config :priority_reverse, :validate => :boolean, :default => false
 
   # Specify either list or channel.  If `redis\_type` is `list`, then we will BLPOP
@@ -158,14 +157,12 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # private
   def list_load_batch_script(redis)
     #A Redis Lua EVAL script to fetch a count of keys
-    redis_script = "local batchsize = tonumber(ARGV[1])\n"
-    redis_script << "local result = redis.call('"
-    redis_script << 'lrange'
-    redis_script << "', KEYS[1], 0, batchsize)\n"
-    redis_script << "redis.call('"
-    redis_script << "ltrim', KEYS[1], batchsize + 1, -1"
-    redis_script << ")\nreturn result\n"
-    
+      redis_script = <<EOF
+        local batchsize = tonumber(ARGV[1])
+        local result = redis.call('lrange', KEYS[1], 0, batchsize)
+        redis.call('ltrim', KEYS[1], batchsize + 1, -1)
+        return result
+EOF
     @redis_script_sha = redis.script(:load, redis_script)
   end
 
@@ -249,7 +246,6 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
       # one call to Redis instead of N (where N == @batch_count) calls,
       # I decided to go with the 'evalsha' method of fetching N items
       # from Redis in bulk.
-      # This method doesn't use zset
       #redis.pipelined do
         #error, item = redis.lpop(@key)
         #(@batch_count-1).times { redis.lpop(@key) }
