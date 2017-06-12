@@ -4,7 +4,7 @@ require "stud/try"
 require 'logstash/inputs/redis'
 require 'securerandom'
 
-def populate(key, event_count)
+def list_populate(key, event_count)
   require "logstash/event"
   redis = Redis.new(:host => "localhost")
   event_count.times do |value|
@@ -15,7 +15,7 @@ def populate(key, event_count)
   end
 end
 
-def process(conf, event_count)
+def list_process(conf, event_count)
   events = input(conf) do |pipeline, queue|
     event_count.times.map{queue.pop}
   end
@@ -42,8 +42,8 @@ describe "inputs/redis", :redis => true do
       }
     CONFIG
 
-    populate(key, event_count)
-    process(conf, event_count)
+    list_populate(key, event_count)
+    list_process(conf, event_count)
   end
 
   it "should read events from a list using batch_count (default 125)" do
@@ -59,8 +59,8 @@ describe "inputs/redis", :redis => true do
       }
     CONFIG
 
-    populate(key, event_count)
-    process(conf, event_count)
+    list_populate(key, event_count)
+    list_process(conf, event_count)
   end
 end
 
@@ -305,7 +305,7 @@ describe LogStash::Inputs::Redis do
 
   describe LogStash::Inputs::Redis do
     context "when using data type" do
-      ["list", "channel", "pattern_channel"].each do |data_type|
+      ["list", "channel", "sortedset", "pattern_channel"].each do |data_type|
         context data_type do
           it_behaves_like "an interruptible input plugin" do
             let(:config) { {'key' => 'foo', 'data_type' => data_type } }
