@@ -15,12 +15,55 @@ def list_populate(key, event_count)
   end
 end
 
+
+def sortedset_populate(key, event_count)
+  require "logstash/event"
+  redis = Redis.new(:host => "localhost")
+
+  
+  event_count_1 = event_count / 2
+  event_count_2 = event_count - event_count_1
+
+  # Add half events in default order
+  event_count_1.times do |value|
+    event = LogStash::Event.new("sequence" => value)
+    Stud.try(10.times) do
+      redis.zadd(key, value, event.to_json)
+    end
+  end
+
+  # Add half events in reverse order
+  event_count_2.times do |value|
+    value = event_count - value - 1
+    event = LogStash::Event.new("sequence" => value)
+    Stud.try(10.times) do
+      redis.zadd(key, value, event.to_json)
+    end
+  end
+end
+
 def list_process(conf, event_count)
   events = input(conf) do |pipeline, queue|
     event_count.times.map{queue.pop}
   end
 
   expect(events.map{|evt| evt.get("sequence")}).to eq((0..event_count.pred).to_a)
+end
+
+def sortedset_process(conf, event_count)
+  events = input(conf) do |pipeline, queue|
+    event_count.times.map{queue.pop}
+  end
+
+  expect(events.map{|evt| evt.get("sequence")}).to eq((0..event_count.pred).to_a)
+end
+
+def sortedsetrev_process(conf, event_count)
+  events = input(conf) do |pipeline, queue|
+    event_count.times.map{queue.pop}
+  end
+
+  expect(events.map{|evt| evt.get("sequence")}).to eq((0..event_count.pred).to_a.reverse)
 end
 
 # integration tests ---------------------
@@ -46,6 +89,45 @@ describe "inputs/redis", :redis => true do
     list_process(conf, event_count)
   end
 
+  it "should read events from a sortedset in default order" do
+    key = SecureRandom.hex
+    event_count = 1000 + rand(50)
+    # event_count = 100
+    conf = <<-CONFIG
+      input {
+        redis {
+          type => "blah"
+          key => "#{key}"
+          data_type => "sortedset"
+          batch_count => 1
+        }
+      }
+    CONFIG
+
+    sortedset_populate(key, event_count)
+    sortedset_process(conf, event_count)
+  end
+
+  it "should read events from a sortedset in reverse order" do
+    key = SecureRandom.hex
+    event_count = 1000 + rand(50)
+    # event_count = 100
+    conf = <<-CONFIG
+      input {
+        redis {
+          type => "blah"
+          key => "#{key}"
+          data_type => "sortedset"
+          batch_count => 1
+          priority_reverse => true
+        }
+      }
+    CONFIG
+
+    sortedset_populate(key, event_count)
+    sortedsetrev_process(conf, event_count)
+  end
+
   it "should read events from a list using batch_count (default 125)" do
     key = SecureRandom.hex
     event_count = 1000 + rand(50)
@@ -61,6 +143,43 @@ describe "inputs/redis", :redis => true do
 
     list_populate(key, event_count)
     list_process(conf, event_count)
+  end
+
+  it "should read events from a sortedset in default order using batch_count" do
+    key = SecureRandom.hex
+    event_count = 1000 + rand(50)
+    # event_count = 100
+    conf = <<-CONFIG
+      input {
+        redis {
+          type => "blah"
+          key => "#{key}"
+          data_type => "sortedset"
+        }
+      }
+    CONFIG
+
+    sortedset_populate(key, event_count)
+    sortedset_process(conf, event_count)
+  end
+
+  it "should read events from a sortedset in reverse order using batch_count" do
+    key = SecureRandom.hex
+    event_count = 1000 + rand(50)
+    # event_count = 100
+    conf = <<-CONFIG
+      input {
+        redis {
+          type => "blah"
+          key => "#{key}"
+          data_type => "sortedset"
+          priority_reverse => true
+        }
+      }
+    CONFIG
+
+    sortedset_populate(key, event_count)
+    sortedsetrev_process(conf, event_count)
   end
 end
 
