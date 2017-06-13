@@ -12,7 +12,7 @@ require 'redis'
 # and stability will be found in more recent stable versions.  Versions 2.6.0+
 # are recommended.
 #
-# The sortedset commands (ZREMRANGEBYRANK, ZRANGE, ZREVRANGE) used by Logstash are supported
+# The sortedset commands (ZREM, ZREMRANGEBYRANK, ZRANGE, ZREVRANGE) used by Logstash are supported
 # in Redis v2.0.0+
 #
 # For more information about Redis, see <http://redis.io/>
