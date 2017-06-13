@@ -108,7 +108,7 @@ The name of a Redis list, sortedset or channel.
 [id="plugins-{type}s-{plugin}-priority_reverse"]
 ===== `priority_reverse`
 
-  * Value type is <<string,string>>
+  * Value type is <<boolean,boolean>>
   * Default value if `false`
 
 When the data_type is `sortedset`, read the sortedset in reverse order.
