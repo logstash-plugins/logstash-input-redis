@@ -1,22 +1,18 @@
 ---
 language: ruby
 cache: bundler
-env:
+env: 
 rvm:
-  - jruby-1.7.25
+- jruby-1.7.25
 services:
-  - redis-server
+- redis-server
 sudo: false
 matrix:
   include:
-    - rvm: jruby-1.7.25
-      env: LOGSTASH_BRANCH=master
-    - rvm: jruby-1.7.25
-      env: LOGSTASH_BRANCH=5.x
-    - rvm: jruby-9.1.9.0
-      env: LOGSTASH_BRANCH=feature/9000
-  allow_failures:
-    - rvm: jruby-9.1.9.0
+  - rvm: jruby-9.1.10.0
+    env: LOGSTASH_BRANCH=master
+  - rvm: jruby-1.7.25
+    env: LOGSTASH_BRANCH=5.x
   fast_finish: true
 install: true
 script: ci/build.sh
