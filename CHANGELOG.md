@@ -1,3 +1,6 @@
+## 3.1.4
+  - Fix some documentation issues
+
 ## 3.1.2
   - use correct unsubscribe method for channel_listener data type
 
