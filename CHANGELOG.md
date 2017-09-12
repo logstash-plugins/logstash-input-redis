@@ -1,3 +1,6 @@
+## 3.1.5
+  - Pin 'redis' gem dependency to major version range 3.x
+
 ## 3.1.4
   - Fix some documentation issues
 
