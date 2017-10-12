@@ -29,6 +29,9 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # The port to connect on.
   config :port, :validate => :number, :default => 6379
 
+  # SSL
+  config :ssl, :validate => :boolean, :default => false
+
   # The Redis database number.
   config :db, :validate => :number, :default => 0
 
@@ -119,7 +122,8 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
       :port => @port,
       :timeout => @timeout,
       :db => @db,
-      :password => @password.nil? ? nil : @password.value
+      :password => @password.nil? ? nil : @password.value,
+      :ssl => @ssl
     }
   end
 
