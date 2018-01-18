@@ -23,17 +23,14 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
   default :codec, "json"
 
-  # The hostname of your Redis server
-  # This defaults to 127.0.0.1 if not specified.
-  # This and :path are mutually exclusive. Will raise an ArgumentError if both are specified.
-  config :host, :validate => :string
+  # The hostname of your Redis server.
+  config :host, :validate => :string, :default => "127.0.0.1"
 
   # The port to connect on.
   config :port, :validate => :number, :default => 6379
 
-  # The unix socket path to connect on. Will override host and port if defined. 
-  # There is no unix socket path by default. 
-  # This and :host are mutually exclusive. Will raise an ArgumentError if both are specified.
+  # The unix socket path to connect on. Will override host and port if defined.
+  # There is no unix socket path by default.
   config :path, :validate => :string
 
   # The Redis database number.
@@ -75,14 +72,6 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   end
 
   def register
-    if !@host.nil? && !@path.nil?
-      raise ArgumentError.new(
-          "Host and Path cannot be specified simultaneously. These options are exclusive."
-        )
-    elsif @host.nil? && @path.nil?
-      @host = "127.0.0.1"
-    end
-
     @redis_url = @path.nil? ? "redis://#{@password}@#{@host}:#{@port}/#{@db}" : "#{@password}@#{@path}/#{@db}"
 
     @redis_builder ||= method(:internal_redis_builder)
@@ -129,12 +118,13 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
   # private
   def redis_params
-    if @path.nil? 
+    if @path.nil?
       connectionParams = {
         :host => @host,
         :port => @port
       }
     else
+      @logger.warn("Parameter 'path' is set, ignoring parameters: 'host' and 'port'")
       connectionParams = {
         :path => @path
       }
