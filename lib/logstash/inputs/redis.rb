@@ -129,7 +129,6 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
   # private
   def redis_params
-    {
     if @path.nil?
       if @sentinel_hosts.nil?
         connectionParams = {
