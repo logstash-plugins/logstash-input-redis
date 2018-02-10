@@ -240,7 +240,8 @@ describe LogStash::Inputs::Redis do
       allow(connection).to receive(:is_a?).and_return(true)
       allow(redis).to receive(:client).and_return(connection)
       expect(redis).to receive(:connected?).and_return(connected.last)
-      expect(connection).to receive(:unsubscribe)
+      allow(connection).to receive(:unsubscribe)
+      allow(connection).to receive(:punsubscribe)
 
       quit_calls.each do |call|
         expect(redis).to receive(call).at_most(:once)
@@ -303,8 +304,14 @@ describe LogStash::Inputs::Redis do
   end
 
   describe LogStash::Inputs::Redis do
-    it_behaves_like "an interruptible input plugin" do
-      let(:config) { {'key' => 'foo', 'data_type' => 'list'} }
+    context "when using data type" do
+      ["list", "channel", "pattern_channel"].each do |data_type|
+        context data_type do
+          it_behaves_like "an interruptible input plugin" do
+            let(:config) { {'key' => 'foo', 'data_type' => data_type } }
+          end
+        end
+      end
     end
   end
 end

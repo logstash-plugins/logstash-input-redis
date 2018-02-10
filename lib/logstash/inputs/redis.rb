@@ -29,6 +29,10 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # The port to connect on.
   config :port, :validate => :number, :default => 6379
 
+  # The unix socket path to connect on. Will override host and port if defined.
+  # There is no unix socket path by default.
+  config :path, :validate => :string
+
   # The Redis database number.
   config :db, :validate => :number, :default => 0
 
@@ -72,6 +76,8 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   end
 
   def register
+    @redis_url = identity
+    
     @redis_builder ||= method(:internal_redis_builder)
 
     # just switch on data_type once
@@ -96,7 +102,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     if @sentinel_hosts
       return "redis-sentinel://#{@password} #{$sentinel_hosts} #{@db} #{@data_type}:#{@key}"
     end
-    "redis://#{@password}@#{@host}:#{@port}/#{@db} #{@data_type}:#{@key}"
+    @path.nil? ? "redis://#{@password}@#{@host}:#{@port}/#{@db}" : "#{@password}@#{@path}/#{@db}"
   end
 
   def run(output_queue)
@@ -124,33 +130,46 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # private
   def redis_params
     {
+    if @path.nil?
+      if @sentinel_hosts.nil?
+        connectionParams = {
+          :host => @host,
+          :port => @port
+        }
+      else
+        hosts = []
+        for sentinel_host in @sentinel_hosts
+          host, port = sentinel_host.split(":")
+          unless port
+            port = @sentinel_port
+          end
+          hosts.push({:host => host, :port => port})
+        end
+        connectionParams = {
+          :url => 'redis://' + @master,
+          :sentinels => hosts,
+          :role => :master
+        }
+      end
+    else
+      @logger.warn("Parameter 'path' is set, ignoring parameters: 'host' and 'port'")
+      connectionParams = {
+        :path => @path
+      }
+    end
+
+    baseParams = {
       :timeout => @timeout,
       :db => @db,
       :password => @password.nil? ? nil : @password.value
     }
+
+    return connectionParams.merge(baseParams)
   end
 
   # private
   def internal_redis_builder
-    if @sentinel_hosts
-      params = redis_params
-      @logger.info('Connecting to sentinel')
-      hosts = []
-      for sentinel_host in @sentinel_hosts
-        host, port = sentinel_host.split(":")
-        unless port
-          port = @sentinel_port
-        end
-        hosts.push({:host => host, :port => port})
-      end
-      params[:url] = 'redis://'+@master
-      params[:sentinels] = hosts
-      params[:role] = :master
-    else
-      params[:host] = @current_host
-      params[:port] = @current_port
-    end
-    ::Redis.new(params)
+    ::Redis.new(redis_params)
   end
 
   # private
@@ -262,7 +281,11 @@ EOF
     # if its a SubscribedClient then:
     # it does not have a disconnect method (yet)
     if @redis.client.is_a?(::Redis::SubscribedClient)
-      @redis.client.unsubscribe
+      if @data_type == 'pattern_channel'
+        @redis.client.punsubscribe
+      else
+        @redis.client.unsubscribe
+      end
     else
       @redis.client.disconnect
     end

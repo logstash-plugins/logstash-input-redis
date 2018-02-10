@@ -1,3 +1,15 @@
+## 3.1.6
+  - Update gemspec summary
+
+## 3.1.5
+  - Pin 'redis' gem dependency to major version range 3.x
+
+## 3.1.4
+  - Fix some documentation issues
+
+## 3.1.2
+  - use correct unsubscribe method for channel_listener data type
+
 ## 3.1.1
   - Relax constraint on logstash-core-plugin-api to >= 1.60 <= 2.99
 
