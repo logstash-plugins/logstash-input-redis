@@ -33,6 +33,9 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # There is no unix socket path by default.
   config :path, :validate => :string
 
+  # SSL
+  config :ssl, :validate => :boolean, :default => false
+  
   # The Redis database number.
   config :db, :validate => :number, :default => 0
 
@@ -133,7 +136,8 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     baseParams = {
       :timeout => @timeout,
       :db => @db,
-      :password => @password.nil? ? nil : @password.value
+      :password => @password.nil? ? nil : @password.value,
+	  :ssl => @ssl
     }
 
     return connectionParams.merge(baseParams)
