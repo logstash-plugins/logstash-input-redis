@@ -32,6 +32,10 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # SSL
   config :ssl, :validate => :boolean, :default => false
 
+  # The unix socket path to connect on. Will override host and port if defined.
+  # There is no unix socket path by default.
+  config :path, :validate => :string
+
   # The Redis database number.
   config :db, :validate => :number, :default => 0
 
@@ -71,7 +75,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   end
 
   def register
-    @redis_url = "redis://#{@password}@#{@host}:#{@port}/#{@db}"
+    @redis_url = @path.nil? ? "redis://#{@password}@#{@host}:#{@port}/#{@db}" : "#{@password}@#{@path}/#{@db}"
 
     @redis_builder ||= method(:internal_redis_builder)
 
@@ -117,14 +121,26 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
   # private
   def redis_params
-    {
-      :host => @host,
-      :port => @port,
+    if @path.nil?
+      connectionParams = {
+        :host => @host,
+        :port => @port
+      }
+    else
+      @logger.warn("Parameter 'path' is set, ignoring parameters: 'host' and 'port'")
+      connectionParams = {
+        :path => @path
+      }
+    end
+
+    baseParams = {
       :timeout => @timeout,
       :db => @db,
       :password => @password.nil? ? nil : @password.value,
       :ssl => @ssl
     }
+
+    return connectionParams.merge(baseParams)
   end
 
   # private

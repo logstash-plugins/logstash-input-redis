@@ -1,3 +1,6 @@
+## 3.1.6
+  - Update gemspec summary
+
 ## 3.1.5
   - Pin 'redis' gem dependency to major version range 3.x
 
