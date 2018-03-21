@@ -1,3 +1,7 @@
+## 3.2.0
+  - Add support for SSL #61
+  - Add support for Redis unix sockets #64
+
 ## 3.1.6
   - Update gemspec summary
 
