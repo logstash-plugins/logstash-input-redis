@@ -29,6 +29,9 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # The port to connect on.
   config :port, :validate => :number, :default => 6379
 
+  # SSL
+  config :ssl, :validate => :boolean, :default => false
+
   # The unix socket path to connect on. Will override host and port if defined.
   # There is no unix socket path by default.
   config :path, :validate => :string
@@ -133,7 +136,8 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     baseParams = {
       :timeout => @timeout,
       :db => @db,
-      :password => @password.nil? ? nil : @password.value
+      :password => @password.nil? ? nil : @password.value,
+      :ssl => @ssl
     }
 
     return connectionParams.merge(baseParams)
