@@ -94,7 +94,7 @@ The Redis database number.
 
 The hostname of your Redis server.
 
-id="plugins-{type}s-{plugin}-path"]
+[id="plugins-{type}s-{plugin}-path"]
 ===== `path`
 
   * Value type is <<string,string>>

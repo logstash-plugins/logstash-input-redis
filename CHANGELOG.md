@@ -1,3 +1,6 @@
+## 3.2.1
+  - Docs: Fix broken asciidoc ID
+
 ## 3.2.0
   - Add support for SSL #61
   - Add support for Redis unix sockets #64
