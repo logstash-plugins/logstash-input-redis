@@ -1,3 +1,6 @@
+## 3.2.2
+  - Docs: Set the default_codec doc attribute.
+
 ## 3.2.1
   - Docs: Fix broken asciidoc ID
 

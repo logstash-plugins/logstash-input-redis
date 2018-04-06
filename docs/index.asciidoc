@@ -1,5 +1,6 @@
 :plugin: redis
 :type: input
+:default_codec: json
 
 ///////////////////////////////////////////
 START - GENERATED VARIABLES, DO NOT EDIT!
@@ -157,3 +158,5 @@ Initial connection timeout in seconds.
 
 [id="plugins-{type}s-{plugin}-common-options"]
 include::{include_path}/{type}.asciidoc[]
+
+:default_codec!:
