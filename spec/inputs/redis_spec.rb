@@ -272,6 +272,18 @@ describe LogStash::Inputs::Redis do
 
           expect(accumulator.size).to eq(2)
         end
+        it 'events had redis_channel' do 
+          #simulate the input thread
+          rt = run_it_thread(instance)
+          #simulate the other system thread
+          publish_thread(instance.new_redis_instance, 'c').join
+          #simulate the pipeline thread
+          close_thread(instance, rt).join
+          e1 = accumulator.pop 
+          e2 = accumulator.pop
+          expect(e1.get('redis_channel')).to eq('foo')
+          expect(e2.get('redis_channel')).to eq('foo')
+        end
       end
     end
 
@@ -298,6 +310,18 @@ describe LogStash::Inputs::Redis do
           close_thread(instance, rt).join
 
           expect(accumulator.size).to eq(2)
+        end
+        it 'events had redis_channel' do 
+          #simulate the input thread
+          rt = run_it_thread(instance)
+          #simulate the other system thread
+          publish_thread(instance.new_redis_instance, 'pc').join
+          #simulate the pipeline thread
+          close_thread(instance, rt).join
+          e1 = accumulator.pop 
+          e2 = accumulator.pop
+          expect(e1.get('redis_channel')).to eq('foo')
+          expect(e2.get('redis_channel')).to eq('foo')
         end
       end
     end
