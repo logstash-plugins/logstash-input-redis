@@ -56,6 +56,10 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # The number of events to return from Redis using EVAL.
   config :batch_count, :validate => :number, :default => 125
 
+  config :sentinel_hosts, :validate => :array
+
+  config :master, :validate => :string, :default => "mymaster"
+
   public
   # public API
   # use to store a proc that can provide a redis instance or mock
@@ -75,8 +79,8 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   end
 
   def register
-    @redis_url = @path.nil? ? "redis://#{@password}@#{@host}:#{@port}/#{@db}" : "#{@password}@#{@path}/#{@db}"
-
+    @redis_url = identity
+    
     @redis_builder ||= method(:internal_redis_builder)
 
     # just switch on data_type once
@@ -93,9 +97,16 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
     @list_method = batched? ? method(:list_batch_listener) : method(:list_single_listener)
 
-    @identity = "#{@redis_url} #{@data_type}:#{@key}"
+    @identity = identity
     @logger.info("Registering Redis", :identity => @identity)
   end # def register
+
+  def identity
+    if @sentinel_hosts
+      return "redis-sentinel://#{@password} #{$sentinel_hosts} #{@db} #{@data_type}:#{@key}"
+    end
+    @path.nil? ? "redis://#{@password}@#{@host}:#{@port}/#{@db}" : "#{@password}@#{@path}/#{@db}"
+  end
 
   def run(output_queue)
     @run_method.call(output_queue)
@@ -122,10 +133,26 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # private
   def redis_params
     if @path.nil?
-      connectionParams = {
-        :host => @host,
-        :port => @port
-      }
+      if @sentinel_hosts.nil?
+        connectionParams = {
+          :host => @host,
+          :port => @port
+        }
+      else
+        hosts = []
+        for sentinel_host in @sentinel_hosts
+          host, port = sentinel_host.split(":")
+          unless port
+            port = @sentinel_port
+          end
+          hosts.push({:host => host, :port => port})
+        end
+        connectionParams = {
+          :url => 'redis://' + @master,
+          :sentinels => hosts,
+          :role => :master
+        }
+      end
     else
       @logger.warn("Parameter 'path' is set, ignoring parameters: 'host' and 'port'")
       connectionParams = {
