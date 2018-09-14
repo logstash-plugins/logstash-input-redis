@@ -56,9 +56,12 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # The number of events to return from Redis using EVAL.
   config :batch_count, :validate => :number, :default => 125
 
+  # Redefined Redis commands to be passed to the Redis client.
+  config :command_map, :validate => :hash, :default => {}
+
   public
   # public API
-  # use to store a proc that can provide a redis instance or mock
+  # use to store a proc that can provide a Redis instance or mock
   def add_external_redis_builder(builder) #callable
     @redis_builder = builder
     self
@@ -151,6 +154,15 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # private
   def connect
     redis = new_redis_instance
+
+    # register any renamed Redis commands
+    if @command_map and not @command_map.empty?
+      client_command_map = redis.client.command_map
+      @command_map.each do |name, renamed|
+        client_command_map[name.to_sym] = renamed.to_sym
+      end
+    end
+
     load_batch_script(redis) if batched? && is_list_type?
     redis
   end # def connect
@@ -158,11 +170,11 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # private
   def load_batch_script(redis)
     #A Redis Lua EVAL script to fetch a count of keys
-      redis_script = <<EOF
-        local batchsize = tonumber(ARGV[1])
-        local result = redis.call('lrange', KEYS[1], 0, batchsize)
-        redis.call('ltrim', KEYS[1], batchsize + 1, -1)
-        return result
+    redis_script = <<EOF
+      local batchsize = tonumber(ARGV[1])
+      local result = redis.call(\'#{@command_map.fetch('lrange', 'lrange')}\', KEYS[1], 0, batchsize)
+      redis.call(\'#{@command_map.fetch('ltrim', 'ltrim')}\', KEYS[1], batchsize + 1, -1)
+      return result
 EOF
     @redis_script_sha = redis.script(:load, redis_script)
   end

@@ -76,6 +76,7 @@ describe LogStash::Inputs::Redis do
   let(:cfg) { {'key' => 'foo', 'data_type' => data_type, 'batch_count' => batch_count} }
   let(:quit_calls) { [:quit] }
   let(:accumulator) { [] }
+  let(:command_map) { {} }
 
   subject do
     LogStash::Plugin.lookup("input", "redis")
@@ -87,6 +88,71 @@ describe LogStash::Inputs::Redis do
       expect {subject.register}.not_to raise_error
     end
   end
+
+  context 'renamed redis commands' do
+    let(:cfg) {
+      {'key' => 'foo',
+      'data_type' => data_type,
+      'command_map' =>
+        {
+        'blpop' => 'testblpop',
+        'evalsha' => 'testevalsha',
+        'lrange' => 'testlrange',
+        'ltrim' => 'testltrim',
+        'script' => 'testscript',
+        'subscribe' => 'testsubscribe',
+        'psubscribe' => 'testpsubscribe',
+        },
+        'batch_count' => 2
+      }
+    }
+
+    before do
+      subject.register
+      allow(redis).to receive(:connected?)
+      allow(redis).to receive(:client).and_return(connection)
+      allow(connection).to receive(:command_map).and_return(command_map)
+    end
+
+    it 'sets the renamed commands in the command map' do
+      allow(redis).to receive(:script)
+      allow(redis).to receive(:evalsha).and_return([])
+
+      tt = Thread.new do
+        sleep 0.01
+        subject.do_stop
+      end
+
+      subject.run(accumulator)
+      tt.join
+
+      expect(command_map[:blpop]).to eq cfg['command_map']['blpop'].to_sym
+      expect(command_map[:evalsha]).to eq cfg['command_map']['evalsha'].to_sym
+      expect(command_map[:lrange]).to eq cfg['command_map']['lrange'].to_sym
+      expect(command_map[:ltrim]).to eq cfg['command_map']['ltrim'].to_sym
+      expect(command_map[:script]).to eq cfg['command_map']['script'].to_sym
+      expect(command_map[:subscribe]).to eq cfg['command_map']['subscribe'].to_sym
+      expect(command_map[:psubscribe]).to eq cfg['command_map']['psubscribe'].to_sym
+    end
+
+    it 'loads the batch script with the renamed command' do
+      capture = nil
+      allow(redis).to receive(:script) { |load, lua_script| capture = lua_script }
+      allow(redis).to receive(:evalsha).and_return([])
+
+      tt = Thread.new do
+        sleep 0.01
+        subject.do_stop
+      end
+
+      subject.run(accumulator)
+      tt.join
+
+      expect(capture).to include "redis.call('#{cfg['command_map']['lrange']}', KEYS[1], 0, batchsize)"
+      expect(capture).to include "redis.call('#{cfg['command_map']['ltrim']}', KEYS[1], batchsize + 1, -1)"
+    end
+  end
+
 
   context 'runtime for list data_type' do
     before do

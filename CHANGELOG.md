@@ -1,3 +1,6 @@
+## Unreleased 
+  - Add support for renamed redis commands #29
+
 ## 3.3.0
   - Add channel to the event #46
 
