@@ -156,11 +156,9 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     redis = new_redis_instance
 
     # register any renamed Redis commands
-    if @command_map and not @command_map.empty?
-      client_command_map = redis.client.command_map
-      @command_map.each do |name, renamed|
-        client_command_map[name.to_sym] = renamed.to_sym
-      end
+    client_command_map = redis.client.command_map
+    @command_map.each do |name, renamed|
+      client_command_map[name.to_sym] = renamed.to_sym
     end
 
     load_batch_script(redis) if batched? && is_list_type?

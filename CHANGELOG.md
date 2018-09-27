@@ -1,5 +1,5 @@
-## Unreleased 
-  - Add support for renamed redis commands #29
+## 3.4.0
+  - Added support for renamed redis commands [#29](https://github.com/logstash-plugins/logstash-input-redis/issues/29)
 
 ## 3.3.0
   - Add channel to the event #46
