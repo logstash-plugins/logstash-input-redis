@@ -76,9 +76,9 @@ The number of events to return from Redis using EVAL.
   * Value can be any of: `list`, `channel`, `pattern_channel`
   * There is no default value for this setting.
 
-Specify either list or channel.  If `redis\_type` is `list`, then we will BLPOP the
-key.  If `redis\_type` is `channel`, then we will SUBSCRIBE to the key.
-If `redis\_type` is `pattern_channel`, then we will PSUBSCRIBE to the key.
+Specify either list or channel.  If `data_type` is `list`, then we will BLPOP the
+key.  If `data_type` is `channel`, then we will SUBSCRIBE to the key.
+If `data_type` is `pattern_channel`, then we will PSUBSCRIBE to the key.
 
 [id="plugins-{type}s-{plugin}-db"]
 ===== `db`
