@@ -48,9 +48,9 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # The name of a Redis list or channel.
   config :key, :validate => :string, :required => true
 
-  # Specify either list or channel.  If `redis\_type` is `list`, then we will BLPOP the
-  # key.  If `redis\_type` is `channel`, then we will SUBSCRIBE to the key.
-  # If `redis\_type` is `pattern_channel`, then we will PSUBSCRIBE to the key.
+  # Specify either list or channel.  If `data_type` is `list`, then we will BLPOP the
+  # key.  If `data_type` is `channel`, then we will SUBSCRIBE to the key.
+  # If `data_type` is `pattern_channel`, then we will PSUBSCRIBE to the key.
   config :data_type, :validate => [ "list", "channel", "pattern_channel" ], :required => true
 
   # The number of events to return from Redis using EVAL.
