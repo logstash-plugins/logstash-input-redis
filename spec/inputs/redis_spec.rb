@@ -1,14 +1,14 @@
-require "logstash/devutils/rspec/spec_helper"
-require "redis"
-require "stud/try"
+require 'logstash/devutils/rspec/spec_helper'
+require 'redis'
+require 'stud/try'
 require 'logstash/inputs/redis'
 require 'securerandom'
 
 def populate(key, event_count)
-  require "logstash/event"
-  redis = Redis.new(:host => "localhost")
+  require 'logstash/event'
+  redis = Redis.new(host: 'localhost')
   event_count.times do |value|
-    event = LogStash::Event.new("sequence" => value)
+    event = LogStash::Event.new('sequence' => value)
     Stud.try(10.times) do
       redis.rpush(key, event.to_json)
     end
@@ -16,18 +16,17 @@ def populate(key, event_count)
 end
 
 def process(conf, event_count)
-  events = input(conf) do |pipeline, queue|
-    event_count.times.map{queue.pop}
+  events = input(conf) do |_pipeline, queue|
+    Array.new(event_count) { queue.pop }
   end
 
-  expect(events.map{|evt| evt.get("sequence")}).to eq((0..event_count.pred).to_a)
+  expect(events.map { |evt| evt.get('sequence') }).to eq((0..event_count.pred).to_a)
 end
 
 # integration tests ---------------------
 
-describe "inputs/redis", :redis => true do
-
-  it "should read events from a list" do
+describe 'inputs/redis', redis: true do
+  it 'should read events from a list' do
     key = SecureRandom.hex
     event_count = 1000 + rand(50)
     # event_count = 100
@@ -46,7 +45,7 @@ describe "inputs/redis", :redis => true do
     process(conf, event_count)
   end
 
-  it "should read events from a list using batch_count (default 125)" do
+  it 'should read events from a list using batch_count (default 125)' do
     key = SecureRandom.hex
     event_count = 1000 + rand(50)
     conf = <<-CONFIG
@@ -68,44 +67,43 @@ end
 
 describe LogStash::Inputs::Redis do
   let(:redis) { double('redis') }
-  let(:builder) { ->{ redis } }
+  let(:builder) { -> { redis } }
   let(:connection) { double('redis_connection') }
   let(:connected) { [true] }
   let(:data_type) { 'list' }
   let(:batch_count) { 1 }
-  let(:cfg) { {'key' => 'foo', 'data_type' => data_type, 'batch_count' => batch_count} }
+  let(:cfg) { { 'key' => 'foo', 'data_type' => data_type, 'batch_count' => batch_count } }
   let(:quit_calls) { [:quit] }
   let(:accumulator) { [] }
   let(:command_map) { {} }
 
   subject do
-    LogStash::Plugin.lookup("input", "redis")
-      .new(cfg).add_external_redis_builder(builder)
+    LogStash::Plugin.lookup('input', 'redis') .new(cfg).add_external_redis_builder(builder)
   end
 
   context 'construction' do
     it 'registers the input' do
-      expect {subject.register}.not_to raise_error
+      expect { subject.register }.not_to raise_error
     end
   end
 
   context 'renamed redis commands' do
-    let(:cfg) {
-      {'key' => 'foo',
-      'data_type' => data_type,
-      'command_map' =>
-        {
-        'blpop' => 'testblpop',
-        'evalsha' => 'testevalsha',
-        'lrange' => 'testlrange',
-        'ltrim' => 'testltrim',
-        'script' => 'testscript',
-        'subscribe' => 'testsubscribe',
-        'psubscribe' => 'testpsubscribe',
+    let(:cfg) do
+      { 'key' => 'foo',
+        'data_type' => data_type,
+        'command_map' =>
+        { 
+          'blpop' => 'testblpop',
+          'evalsha' => 'testevalsha',
+          'lrange' => 'testlrange',
+          'ltrim' => 'testltrim',
+          'script' => 'testscript',
+          'subscribe' => 'testsubscribe',
+          'psubscribe' => 'testpsubscribe',
         },
         'batch_count' => 2
       }
-    }
+    end
 
     before do
       subject.register
@@ -137,7 +135,7 @@ describe LogStash::Inputs::Redis do
 
     it 'loads the batch script with the renamed command' do
       capture = nil
-      allow(redis).to receive(:script) { |load, lua_script| capture = lua_script }
+      allow(redis).to receive(:script) { |_load, lua_script| capture = lua_script }
       allow(redis).to receive(:evalsha).and_return([])
 
       tt = Thread.new do
@@ -153,26 +151,25 @@ describe LogStash::Inputs::Redis do
     end
   end
 
-
   context 'runtime for list data_type' do
     before do
       subject.register
     end
 
     context 'close when redis is unset' do
-      let(:quit_calls) { [:quit, :unsubscribe, :punsubscribe, :connection, :disconnect!] }
+      let(:quit_calls) { %i[quit unsubscribe punsubscribe connection disconnect!] }
 
       it 'does not attempt to quit' do
         allow(redis).to receive(:nil?).and_return(true)
         quit_calls.each do |call|
           expect(redis).not_to receive(call)
         end
-        expect {subject.do_stop}.not_to raise_error
+        expect { subject.do_stop }.not_to raise_error
       end
     end
 
     it 'calling the run method, adds events to the queue' do
-      expect(redis).to receive(:blpop).at_least(:once).and_return(['foo', 'l1'])
+      expect(redis).to receive(:blpop).at_least(:once).and_return(%w[foo l1])
 
       allow(redis).to receive(:connected?).and_return(connected.last)
       allow(redis).to receive(:quit)
@@ -189,7 +186,7 @@ describe LogStash::Inputs::Redis do
       expect(accumulator.size).to be > 0
     end
 
-    context "when the batch size is greater than 1" do
+    context 'when the batch size is greater than 1' do
       let(:batch_count) { 10 }
       let(:rates) { [] }
 
@@ -200,7 +197,7 @@ describe LogStash::Inputs::Redis do
       end
 
       it 'calling the run method, adds events to the queue' do
-        expect(redis).to receive(:evalsha).at_least(:once).and_return(['a', 'b'])
+        expect(redis).to receive(:evalsha).at_least(:once).and_return(%w[a b])
 
         tt = Thread.new do
           sleep 0.01
@@ -214,7 +211,7 @@ describe LogStash::Inputs::Redis do
       end
     end
 
-    context "when there is no data" do
+    context 'when there is no data' do
       let(:batch_count) { 10 }
       let(:rates) { [] }
 
@@ -250,15 +247,15 @@ describe LogStash::Inputs::Redis do
 
     it 'multiple close calls, calls to redis once' do
       subject.use_redis(redis)
-      allow(redis).to receive(:blpop).and_return(['foo', 'l1'])
+      allow(redis).to receive(:blpop).and_return(%w[foo l1])
       expect(redis).to receive(:connected?).and_return(connected.last)
       quit_calls.each do |call|
         expect(redis).to receive(call).at_most(:once)
       end
 
       subject.do_stop
-      connected.push(false) #can't use let block here so push to array
-      expect {subject.do_stop}.not_to raise_error
+      connected.push(false) # can't use let block here so push to array
+      expect { subject.do_stop }.not_to raise_error
       subject.do_stop
     end
   end
@@ -322,7 +319,7 @@ describe LogStash::Inputs::Redis do
         it 'multiple stop calls, calls to redis once', type: :mocked do
           subject.do_stop
           connected.push(false) #can't use let block here so push to array
-          expect {subject.do_stop}.not_to raise_error
+          expect { subject.do_stop }.not_to raise_error
           subject.do_stop
         end
       end
@@ -360,8 +357,8 @@ describe LogStash::Inputs::Redis do
       context 'mocked redis' do
         it 'multiple stop calls, calls to redis once', type: :mocked do
           subject.do_stop
-          connected.push(false) #can't use let block here so push to array
-          expect {subject.do_stop}.not_to raise_error
+          connected.push(false) # can't use let block here so push to array
+          expect { subject.do_stop }.not_to raise_error
           subject.do_stop
         end
       end
@@ -394,11 +391,11 @@ describe LogStash::Inputs::Redis do
   end
 
   describe LogStash::Inputs::Redis do
-    context "when using data type" do
-      ["list", "channel", "pattern_channel"].each do |data_type|
+    context 'when using data type' do
+      %w[list channel pattern_channel].each do |data_type|
         context data_type do
-          it_behaves_like "an interruptible input plugin" do
-            let(:config) { {'key' => 'foo', 'data_type' => data_type } }
+          it_behaves_like 'an interruptible input plugin' do
+            let(:config) { { 'key' => 'foo', 'data_type' => data_type } }
           end
         end
       end
