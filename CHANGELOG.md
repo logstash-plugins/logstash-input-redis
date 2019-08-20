@@ -1,3 +1,6 @@
+## 3.5.0
+  - Updated redis client dependency to ~> 4
+
 ## 3.4.1
   - Changed `redis_type` to `data_type` in .rb file [#70](https://github.com/logstash-plugins/logstash-input-redis/issues/70) and asciidoc file [#71](https://github.com/logstash-plugins/logstash-input-redis/issues/71)
 
