@@ -31,7 +31,7 @@ if [ "$ELASTIC_STACK_VERSION" ]; then
         if [[ $ELASTIC_STACK_VERSION == 8* ]]; then
           jq=".build.projects.logstash.packages.\"logstash-$ELASTIC_STACK_VERSION-docker-image.tar.gz\".url"
         else
-          jq=".build.projects.\"logstash-docker\".packages.\"logstash-$ELASTIC_STACK_VERSION-docker-image.tar.gz\".url"
+          jq=".build.projects.\"logstash\".packages.\"logstash-$ELASTIC_STACK_VERSION-docker-image.tar.gz\".url"
         fi
         echo "curl --silent https://artifacts-api.elastic.co/v1/versions/$ELASTIC_STACK_VERSION/builds/latest | jq -r $jq)"
         result=$(curl --silent https://artifacts-api.elastic.co/v1/versions/$ELASTIC_STACK_VERSION/builds/latest | jq -r $jq)
