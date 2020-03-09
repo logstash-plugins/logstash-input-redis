@@ -1,4 +1,5 @@
 require "logstash/devutils/rspec/spec_helper"
+require "logstash/devutils/rspec/shared_examples"
 require "redis"
 require "stud/try"
 require 'logstash/inputs/redis'
