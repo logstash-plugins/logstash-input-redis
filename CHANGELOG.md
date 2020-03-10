@@ -1,3 +1,6 @@
+## 3.5.1
+  - [DOC] Reordered config option to alpha order [#tbd](https://github.com/logstash-plugins/logstash-input-redis/issues/tbd)
+
 ## 3.5.0
   - Updated redis client dependency to ~> 4
 
