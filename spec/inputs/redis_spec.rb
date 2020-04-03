@@ -63,6 +63,48 @@ describe "inputs/redis", :redis => true do
     populate(key, event_count)
     process(conf, event_count)
   end
+
+  it "should read events from a list pattern" do
+    key_base = SecureRandom.hex
+    conf = <<-CONFIG
+      input {
+        redis {
+          type => "blah"
+          key => "#{key}.*"
+          data_type => "pattern_list"
+          batch_count => 1
+        }
+      }
+    CONFIG
+    total_event_count = 0
+    (0..10).each do |idx|
+      event_count = 100 + rand(50)
+      total_event_count += event_count
+      populate("#{key_base}.#{idx}", event_count)
+    end
+    process(conf, total_event_count)
+  end
+
+  it "should read events from a list pattern using batch_count (default 125)" do
+    key_base = SecureRandom.hex
+    conf = <<-CONFIG
+      input {
+        redis {
+          type => "blah"
+          key => "#{key}.*"
+          data_type => "pattern_list"
+          batch_count => 125
+        }
+      }
+    CONFIG
+    total_event_count = 0
+    (0..10).each do |idx|
+      event_count = 100 + rand(50)
+      total_event_count += event_count
+      populate("#{key_base}.#{idx}", event_count)
+    end
+    process(conf, total_event_count)
+  end
 end
 
 # unit tests ---------------------
@@ -264,6 +306,64 @@ describe LogStash::Inputs::Redis do
     end
   end
 
+  context 'runtime for pattern_list data_type' do
+    let(:data_type) { 'pattern_list' }
+    let(:key) { 'foo.*' }
+    before do
+      subject.register
+      subject.init_threadpool
+    end
+
+    context 'close when redis is unset' do
+      let(:quit_calls) { [:quit, :unsubscribe, :punsubscribe, :connection, :disconnect!] }
+
+      it 'does not attempt to quit' do
+        allow(redis).to receive(:nil?).and_return(true)
+        quit_calls.each do |call|
+          expect(redis).not_to receive(call)
+        end
+        expect {subject.do_stop}.not_to raise_error
+      end
+    end
+
+    it 'calling the run method, adds events to the queue' do
+      expect(redis).to receive(:keys).at_least(:once).and_return(['foo.bar'])
+      expect(redis).to receive(:lpop).at_least(:once).and_return('l1')
+
+      allow(redis).to receive(:connected?).and_return(connected.last)
+      allow(redis).to receive(:quit)
+
+      tt = Thread.new do
+        end_by = Time.now + 3
+        while accumulator.size < 1 and Time.now <= end_by
+          sleep 0.1
+        end
+        subject.do_stop
+      end
+
+      subject.run(accumulator)
+
+      tt.join
+
+      expect(accumulator.size).to be > 0
+    end
+
+    it 'multiple close calls, calls to redis once' do
+      subject.use_redis(redis)
+      allow(redis).to receive(:keys).at_least(:once).and_return(['foo.bar'])
+      allow(redis).to receive(:lpop).and_return('l1')
+      expect(redis).to receive(:connected?).and_return(connected.last)
+      quit_calls.each do |call|
+        expect(redis).to receive(call).at_most(:once)
+      end
+
+      subject.do_stop
+      connected.push(false) #can't use let block here so push to array
+      expect {subject.do_stop}.not_to raise_error
+      subject.do_stop
+    end
+  end
+
   context 'for the subscribe data_types' do
     def run_it_thread(inst)
       Thread.new(inst) do |subj|
@@ -396,7 +496,7 @@ describe LogStash::Inputs::Redis do
 
   describe LogStash::Inputs::Redis do
     context "when using data type" do
-      ["list", "channel", "pattern_channel"].each do |data_type|
+      ["list", "channel", "pattern_channel", "pattern_list"].each do |data_type|
         context data_type do
           it_behaves_like "an interruptible input plugin" do
             let(:config) { {'key' => 'foo', 'data_type' => data_type } }
