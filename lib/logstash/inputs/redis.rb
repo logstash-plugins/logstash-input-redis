@@ -4,9 +4,11 @@ require "logstash/inputs/base"
 require "logstash/inputs/threadable"
 require 'redis'
 
-# This input will read events from a Redis instance; it supports both Redis channels and lists.
+# This input will read events from a Redis instance; it supports both Redis channels, lists and sortedsets.
 # The list command (BLPOP) used by Logstash is supported in Redis v1.3.1+, and
 # the channel commands used by Logstash are found in Redis v1.3.8+.
+# The sortedset commands (ZREM, ZREMRANGEBYRANK, ZRANGE, ZREVRANGE) used by Logstash
+# are supported in Redis v2.0.0+.
 # While you may be able to make these Redis versions work, the best performance
 # and stability will be found in more recent stable versions.  Versions 2.6.0+
 # are recommended.
@@ -48,10 +50,14 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # The name of a Redis list or channel.
   config :key, :validate => :string, :required => true
 
+  # Pop high scores item first in sortedset. No effect for other data types
+  config :reverse_order, :validate => :boolean, :default => false
+
   # Specify either list or channel.  If `data_type` is `list`, then we will BLPOP the
   # key.  If `data_type` is `channel`, then we will SUBSCRIBE to the key.
   # If `data_type` is `pattern_channel`, then we will PSUBSCRIBE to the key.
-  config :data_type, :validate => [ "list", "channel", "pattern_channel" ], :required => true
+  # If `data_type` is `sortedset`, then we will ZRANGE/ZREVRANGE to the key.
+  config :data_type, :validate => [ "list", "channel", "pattern_channel", "sortedset" ], :required => true
 
   # The number of events to return from Redis using EVAL.
   config :batch_count, :validate => :number, :default => 125
@@ -92,8 +98,12 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     elsif @data_type == 'pattern_channel'
       @run_method = method(:pattern_channel_runner)
       @stop_method = method(:subscribe_stop)
+    elsif @data_type == 'sortedset'
+      @run_method = method(:sortedset_runner)
+      @stop_method = method(:sortedset_stop)
     end
 
+    @sortedset_method = batched? ? method(:sortedset_batch_listener) : method(:sortedset_single_listener)
     @list_method = batched? ? method(:list_batch_listener) : method(:list_single_listener)
 
     @identity = "#{@redis_url} #{@data_type}:#{@key}"
@@ -120,6 +130,11 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # private
   def is_list_type?
     @data_type == 'list'
+  end
+
+  # private
+  def is_sortedset_type?
+    @data_type == 'sortedset'
   end
 
   # private
@@ -164,6 +179,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     end
 
     load_batch_script(redis) if batched? && is_list_type?
+    load_batch_script_sortedset(redis) if batched? && is_sortedset_type?
     redis
   end # def connect
 
@@ -176,6 +192,29 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
       redis.call(\'#{@command_map.fetch('ltrim', 'ltrim')}\', KEYS[1], batchsize + 1, -1)
       return result
 EOF
+    @redis_script_sha = redis.script(:load, redis_script)
+  end
+
+  # private
+  def load_batch_script_sortedset(redis)
+    #A Redis Lua EVAL script to fetch a count of keys
+    if @reverse_order then
+      redis_script = <<EOF
+        local batchsize = tonumber(ARGV[1])
+        local zcard = tonumber(redis.call('zcard', KEYS[1]))
+        local result = redis.call('zrevrange', KEYS[1], 0, batchsize)
+        redis.call('zremrangebyrank', KEYS[1], zcard - batchsize - 1, zcard)
+        return result
+EOF
+    else
+      redis_script = <<EOF
+        local batchsize = tonumber(ARGV[1])
+        local zcard = tonumber(redis.call('zcard', KEYS[1]))
+        local result = redis.call('zrange', KEYS[1], 0, batchsize)
+        redis.call('zremrangebyrank', KEYS[1], 0, batchsize)
+        return result
+EOF
+    end
     @redis_script_sha = redis.script(:load, redis_script)
   end
 
@@ -262,6 +301,74 @@ EOF
     # blpop returns the 'key' read from as well as the item result
     # we only care about the result (2nd item in the list).
     queue_event(item.last, output_queue)
+  end
+
+  # private
+  def sortedset_stop
+    return if @redis.nil? || !@redis.connected?
+
+    @redis.quit rescue nil
+    @redis = nil
+  end
+
+  # private
+  def sortedset_runner(output_queue)
+    while !stop?
+      begin
+        @redis ||= connect
+        @sortedset_method.call(@redis, output_queue)
+      rescue ::Redis::BaseError => e
+        @logger.warn("Redis connection problem", :exception => e)
+        # Reset the redis variable to trigger reconnect
+        @redis = nil
+        # this sleep does not need to be stoppable as its
+        # in a while !stop? loop
+        sleep 1
+      end
+    end
+  end
+
+  def sortedset_batch_listener(redis, output_queue)
+    begin
+      results = redis.evalsha(@redis_script_sha, [@key], [@batch_count-1])
+      results.each do |item|
+        queue_event(item, output_queue)
+      end
+
+      if results.size.zero?
+        sleep BATCH_EMPTY_SLEEP
+      end
+    rescue ::Redis::CommandError => e
+      if e.to_s =~ /NOSCRIPT/ then
+        @logger.warn("Redis may have been restarted, reloading Redis batch EVAL script", :exception => e);
+        load_batch_script_sortedset(redis)
+        retry
+      else
+        raise e
+      end
+    end
+  end
+
+  def sortedset_single_listener(redis, output_queue)
+    redis.watch(@key) do
+      if @reverse_order then
+        item = redis.zrevrange(@key, 0, @batch_count, :timeout => 1)
+      else
+        item = redis.zrange(@key, 0, @batch_count, :timeout => 1)
+      end
+
+      if item.size.zero?
+        sleep BATCH_EMPTY_SLEEP
+      end
+
+      return unless item.size > 0
+
+      redis.multi do |multi|
+        redis.zrem(@key, item)
+      end
+
+      queue_event(item.first, output_queue)
+    end
   end
 
   # private

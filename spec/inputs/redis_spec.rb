@@ -24,6 +24,47 @@ def process(conf, event_count)
   expect(events.map{|evt| evt.get("sequence")}).to eq((0..event_count.pred).to_a)
 end
 
+def sortedset_populate(key, event_count)
+  require "logstash/event"
+  redis = Redis.new(:host => "localhost")
+
+  event_count_1 = event_count / 2
+  event_count_2 = event_count - event_count_1
+
+  # Add half events in default order
+  event_count_1.times do |value|
+    event = LogStash::Event.new("sequence" => value)
+    Stud.try(10.times) do
+      redis.zadd(key, value, event.to_json)
+    end
+  end
+
+  # Add half events in reverse order
+  event_count_2.times do |value|
+    value = event_count - value - 1
+    event = LogStash::Event.new("sequence" => value)
+    Stud.try(10.times) do
+      redis.zadd(key, value, event.to_json)
+    end
+  end
+end
+
+def sortedset_process(conf, event_count)
+  events = input(conf) do |pipeline, queue|
+    event_count.times.map{queue.pop}
+  end
+
+  expect(events.map{|evt| evt.get("sequence")}).to eq((0..event_count.pred).to_a)
+end
+
+def sortedsetrev_process(conf, event_count)
+  events = input(conf) do |pipeline, queue|
+    event_count.times.map{queue.pop}
+  end
+
+  expect(events.map{|evt| evt.get("sequence")}).to eq((0..event_count.pred).to_a.reverse)
+end
+
 # integration tests ---------------------
 
 describe "inputs/redis", :redis => true do
@@ -63,6 +104,83 @@ describe "inputs/redis", :redis => true do
     populate(key, event_count)
     process(conf, event_count)
   end
+
+  it "should read events from a sortedset in default order" do
+    key = SecureRandom.hex
+    event_count = 1000 + rand(50)
+    # event_count = 100
+    conf = <<-CONFIG
+      input {
+        redis {
+          type => "blah"
+          key => "#{key}"
+          data_type => "sortedset"
+          batch_count => 1
+        }
+      }
+    CONFIG
+
+    sortedset_populate(key, event_count)
+    sortedset_process(conf, event_count)
+  end
+
+  it "should read events from a sortedset in reverse order" do
+    key = SecureRandom.hex
+    event_count = 1000 + rand(50)
+    # event_count = 100
+    conf = <<-CONFIG
+      input {
+        redis {
+          type => "blah"
+          key => "#{key}"
+          data_type => "sortedset"
+          batch_count => 1
+          reverse_order => true
+        }
+      }
+    CONFIG
+
+    sortedset_populate(key, event_count)
+    sortedsetrev_process(conf, event_count)
+  end
+
+  it "should read events from a sortedset in default order using batch_count" do
+    key = SecureRandom.hex
+    event_count = 1000 + rand(50)
+    # event_count = 100
+    conf = <<-CONFIG
+      input {
+        redis {
+          type => "blah"
+          key => "#{key}"
+          data_type => "sortedset"
+        }
+      }
+    CONFIG
+
+    sortedset_populate(key, event_count)
+    sortedset_process(conf, event_count)
+  end
+
+  it "should read events from a sortedset in reverse order using batch_count" do
+    key = SecureRandom.hex
+    event_count = 1000 + rand(50)
+    # event_count = 100
+    conf = <<-CONFIG
+      input {
+        redis {
+          type => "blah"
+          key => "#{key}"
+          data_type => "sortedset"
+          reverse_order => true
+        }
+      }
+    CONFIG
+
+    sortedset_populate(key, event_count)
+    sortedsetrev_process(conf, event_count)
+  end
+
 end
 
 # unit tests ---------------------
@@ -188,6 +306,98 @@ describe LogStash::Inputs::Redis do
       tt.join
 
       expect(accumulator.size).to be > 0
+    end
+
+    context "when the batch size is greater than 1" do
+      let(:batch_count) { 10 }
+      let(:rates) { [] }
+
+      before do
+        allow(redis).to receive(:connected?).and_return(connected.last)
+        allow(redis).to receive(:script)
+        allow(redis).to receive(:quit)
+      end
+
+      it 'calling the run method, adds events to the queue' do
+        expect(redis).to receive(:evalsha).at_least(:once).and_return(['a', 'b'])
+
+        tt = Thread.new do
+          sleep 0.01
+          subject.do_stop
+        end
+
+        subject.run(accumulator)
+
+        tt.join
+        expect(accumulator.size).to be > 0
+      end
+    end
+
+    context "when there is no data" do
+      let(:batch_count) { 10 }
+      let(:rates) { [] }
+
+      it 'will throttle the loop' do
+        allow(redis).to receive(:evalsha) do
+          rates.unshift Time.now.to_f
+          []
+        end
+        allow(redis).to receive(:connected?).and_return(connected.last)
+        allow(redis).to receive(:script)
+        allow(redis).to receive(:quit)
+
+        tt = Thread.new do
+          sleep 1
+          subject.do_stop
+        end
+
+        subject.run(accumulator)
+
+        tt.join
+
+        inters = []
+        rates.each_cons(2) do |x, y|
+          inters << x - y
+        end
+
+        expect(accumulator.size).to eq(0)
+        inters.each do |delta|
+          expect(delta).to be_within(0.01).of(LogStash::Inputs::Redis::BATCH_EMPTY_SLEEP)
+        end
+      end
+    end
+
+    it 'multiple close calls, calls to redis once' do
+      subject.use_redis(redis)
+      allow(redis).to receive(:blpop).and_return(['foo', 'l1'])
+      expect(redis).to receive(:connected?).and_return(connected.last)
+      quit_calls.each do |call|
+        expect(redis).to receive(call).at_most(:once)
+      end
+
+      subject.do_stop
+      connected.push(false) #can't use let block here so push to array
+      expect {subject.do_stop}.not_to raise_error
+      subject.do_stop
+    end
+  end
+
+  context 'runtime for sortedset data_type' do
+    let(:data_type) { 'sortedset' }
+    before do
+      subject.register
+    end
+
+    context 'close when redis is unset' do
+      let(:quit_calls) { [:quit, :unsubscribe, :punsubscribe, :connection, :disconnect!] }
+
+      it 'does not attempt to quit' do
+        allow(redis).to receive(:nil?).and_return(true)
+        quit_calls.each do |call|
+          expect(redis).not_to receive(call)
+        end
+        expect {subject.do_stop}.not_to raise_error
+      end
     end
 
     context "when the batch size is greater than 1" do
@@ -396,7 +606,7 @@ describe LogStash::Inputs::Redis do
 
   describe LogStash::Inputs::Redis do
     context "when using data type" do
-      ["list", "channel", "pattern_channel"].each do |data_type|
+      ["list", "channel", "pattern_channel", "sortedset"].each do |data_type|
         context data_type do
           it_behaves_like "an interruptible input plugin" do
             let(:config) { {'key' => 'foo', 'data_type' => data_type } }
