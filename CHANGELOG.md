@@ -1,3 +1,6 @@
+## 3.5.2
+  - Support for REDIS Sorted Set(ZSET) [#56](https://github.com/logstash-plugins/logstash-input-redis/issues/56)
+
 ## 3.5.1
   - [DOC] Reordered config option to alpha order [#79](https://github.com/logstash-plugins/logstash-input-redis/issues/79)
 

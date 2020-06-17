@@ -44,7 +44,7 @@ This plugin supports the following configuration options plus the <<plugins-{typ
 |Setting |Input type|Required
 | <<plugins-{type}s-{plugin}-batch_count>> |<<number,number>>|No
 | <<plugins-{type}s-{plugin}-command_map>> |<<hash,hash>>|No
-| <<plugins-{type}s-{plugin}-data_type>> |<<string,string>>, one of `["list", "channel", "pattern_channel"]`|Yes
+| <<plugins-{type}s-{plugin}-data_type>> |<<string,string>>, one of `["list", "channel", "pattern_channel", "sortedset"]`|Yes
 | <<plugins-{type}s-{plugin}-db>> |<<number,number>>|No
 | <<plugins-{type}s-{plugin}-host>> |<<string,string>>|No
 | <<plugins-{type}s-{plugin}-path>> |<<string,string>>|No
@@ -54,6 +54,7 @@ This plugin supports the following configuration options plus the <<plugins-{typ
 | <<plugins-{type}s-{plugin}-ssl>> |<<boolean,boolean>>|No
 | <<plugins-{type}s-{plugin}-threads>> |<<number,number>>|No
 | <<plugins-{type}s-{plugin}-timeout>> |<<number,number>>|No
+| <<plugins-{type}s-{plugin}-reverse_order>> |<<boolean,boolean>>|No
 |=======================================================================
 
 Also see <<plugins-{type}s-{plugin}-common-options>> for a list of options supported by all
@@ -84,12 +85,13 @@ Redis allows for the renaming or disabling of commands in its protocol, see:  ht
 ===== `data_type`
 
   * This is a required setting.
-  * Value can be any of: `list`, `channel`, `pattern_channel`
+  * Value can be any of: `list`, `channel`, `pattern_channel`, `sortedset`
   * There is no default value for this setting.
 
 Specify either list or channel.  If `data_type` is `list`, then we will BLPOP the
 key.  If `data_type` is `channel`, then we will SUBSCRIBE to the key.
 If `data_type` is `pattern_channel`, then we will PSUBSCRIBE to the key.
+If `data_type` is `sortedset`, then we will ZRANGE/ZREVRANGE and ZREM/ZREMRANGEBYRANK the key.
 
 [id="plugins-{type}s-{plugin}-db"]
 ===== `db`
@@ -123,7 +125,7 @@ The unix socket path of your Redis server.
   * Value type is <<string,string>>
   * There is no default value for this setting.
 
-The name of a Redis list or channel.
+The name of a Redis list, channel or sortedset.
 
 [id="plugins-{type}s-{plugin}-password"]
 ===== `password`
@@ -165,6 +167,15 @@ Enable SSL support.
   * Default value is `5`
 
 Initial connection timeout in seconds.
+
+[id="plugins-{type}s-{plugin}-reverse_order"]
+===== `reverse_order`
+
+  * Value type is <<boolean,boolean>>
+  * Default value if `false`
+
+When the data_type is `sortedset`, read the sortedset in reverse order.
+
 
 [id="plugins-{type}s-{plugin}-common-options"]
 include::{include_path}/{type}.asciidoc[]
