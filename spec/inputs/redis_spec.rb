@@ -454,7 +454,7 @@ describe LogStash::Inputs::Redis do
 
         expect(accumulator.size).to eq(0)
         inters.each do |delta|
-          expect(delta).to be_within(0.01).of(LogStash::Inputs::Redis::BATCH_EMPTY_SLEEP)
+          expect(delta).to be_within(0.03).of(LogStash::Inputs::Redis::BATCH_EMPTY_SLEEP)
         end
       end
     end
