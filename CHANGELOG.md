@@ -1,4 +1,4 @@
-## 3.6.1
+## 3.6.0
   - Remove ruby pipeline dependency. Starting from Logstash 8, Ruby execution engine is not available. All pipelines should use Java pipeline [#84](https://github.com/logstash-plugins/logstash-input-redis/pull/84)
 
 ## 3.5.1
