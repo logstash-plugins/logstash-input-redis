@@ -3,7 +3,7 @@ require "redis"
 require "securerandom"
 
 require "logstash/event"
-require "logstash/pipeline"
+require "logstash/java_pipeline"
 require_relative "../lib/logstash/inputs/redis"
 
 class BenchOptions
@@ -35,7 +35,7 @@ end
 bench_options = BenchOptions.new
 
 def input(cfg, slow, &block)
-  pipeline = LogStash::Pipeline.new(cfg)
+  pipeline = LogStash::JavaPipeline.new(cfg)
   queue = Queue.new
 
   pipeline.instance_eval do

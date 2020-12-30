@@ -5,6 +5,7 @@ require "logstash/inputs/threadable"
 require 'redis'
 require 'concurrent'
 require 'concurrent/executors'
+require "stud/interval"
 
 # This input will read events from a Redis instance; it supports both Redis channels and lists.
 # The list command (BLPOP) used by Logstash is supported in Redis v1.3.1+, and
