@@ -157,11 +157,8 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     redis = new_redis_instance
 
     # register any renamed Redis commands
-    if @command_map.any?
-      client_command_map = redis.client.command_map
-      @command_map.each do |name, renamed|
-        client_command_map[name.to_sym] = renamed.to_sym
-      end
+    @command_map.each do |name, renamed|
+      redis._client.command_map[name.to_sym] = renamed.to_sym
     end
 
     load_batch_script(redis) if batched? && is_list_type?
@@ -270,14 +267,14 @@ EOF
     return if @redis.nil? || !@redis.connected?
     # if its a SubscribedClient then:
     # it does not have a disconnect method (yet)
-    if @redis.client.is_a?(::Redis::SubscribedClient)
+    if @redis.subscribed?
       if @data_type == 'pattern_channel'
-        @redis.client.punsubscribe
+        @redis.punsubscribe
       else
-        @redis.client.unsubscribe
+        @redis.unsubscribe
       end
     else
-      @redis.client.disconnect
+      @redis.disconnect!
     end
     @redis = nil
   end
