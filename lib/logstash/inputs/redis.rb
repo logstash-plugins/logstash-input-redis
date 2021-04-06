@@ -61,27 +61,9 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   config :command_map, :validate => :hash, :default => {}
 
   public
-  # public API
-  # use to store a proc that can provide a Redis instance or mock
-  def add_external_redis_builder(builder) #callable
-    @redis_builder = builder
-    self
-  end
-
-  # use to apply an instance directly and bypass the builder
-  def use_redis(instance)
-    @redis = instance
-    self
-  end
-
-  def new_redis_instance
-    @redis_builder.call
-  end
 
   def register
     @redis_url = @path.nil? ? "redis://#{@password}@#{@host}:#{@port}/#{@db}" : "#{@password}@#{@path}/#{@db}"
-
-    @redis_builder ||= method(:internal_redis_builder)
 
     # just switch on data_type once
     if @data_type == 'list' || @data_type == 'dummy'
@@ -147,8 +129,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     return connectionParams.merge(baseParams)
   end
 
-  # private
-  def internal_redis_builder
+  def new_redis_instance
     ::Redis.new(redis_params)
   end
 
@@ -162,6 +143,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     end
 
     load_batch_script(redis) if batched? && is_list_type?
+
     redis
   end # def connect
 
@@ -205,7 +187,9 @@ EOF
         @redis ||= connect
         @list_method.call(@redis, output_queue)
       rescue ::Redis::BaseError => e
-        @logger.warn("Redis connection problem", :exception => e)
+        info = { message: e.message, exception: e.class }
+        info[:backtrace] = e.backtrace if @logger.debug?
+        @logger.warn("Redis connection problem", info)
         # Reset the redis variable to trigger reconnect
         @redis = nil
         # this sleep does not need to be stoppable as its
