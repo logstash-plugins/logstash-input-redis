@@ -166,10 +166,14 @@ describe LogStash::Inputs::Redis do
         expect(command[2]).to eql 1
       end.and_return ['foo', "{\"foo1\":\"bar\""], nil
 
-      thread = Thread.new do
-        subject.run(queue)
+      tt = Thread.new do
+        sleep 0.25
+        subject.do_stop
       end
-      thread.join(1.0)
+
+      subject.run(queue)
+
+      tt.join
 
       expect( queue.size ).to be > 0
     end
@@ -183,10 +187,14 @@ describe LogStash::Inputs::Redis do
           expect(command[0]).to eql :evalsha
         end.and_return ['{"a": 1}', '{"b":'], []
 
-        thread = Thread.new do
-          subject.run(queue)
+        tt = Thread.new do
+          sleep 0.25
+          subject.do_stop
         end
-        thread.join(1.0)
+
+        subject.run(queue)
+
+        tt.join
 
         expect( queue.size ).to be > 0
       end
@@ -204,7 +212,7 @@ describe LogStash::Inputs::Redis do
         end.and_return []
 
         tt = Thread.new do
-          sleep 1
+          sleep 0.25
           subject.do_stop
         end
 
