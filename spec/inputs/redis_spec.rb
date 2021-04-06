@@ -1,12 +1,12 @@
 require "logstash/devutils/rspec/spec_helper"
 require "logstash/devutils/rspec/shared_examples"
-require "redis"
-require "stud/try"
 require 'logstash/inputs/redis'
 require 'securerandom'
 
 def populate(key, event_count)
   require "logstash/event"
+  require "redis"
+  require "stud/try"
   redis = Redis.new(:host => "localhost")
   event_count.times do |value|
     event = LogStash::Event.new("sequence" => value)
@@ -65,153 +65,130 @@ describe "inputs/redis", :redis => true do
   end
 end
 
-# unit tests ---------------------
-
 describe LogStash::Inputs::Redis do
-  let(:redis) { double('redis') }
-  let(:builder) { ->{ redis } }
-  let(:connection) { double('redis_connection') }
-  let(:connected) { [true] }
+  let(:queue) { Queue.new }
+
   let(:data_type) { 'list' }
   let(:batch_count) { 1 }
-  let(:cfg) { {'key' => 'foo', 'data_type' => data_type, 'batch_count' => batch_count} }
+  let(:config) { {'key' => 'foo', 'data_type' => data_type, 'batch_count' => batch_count} }
   let(:quit_calls) { [:quit] }
-  let(:accumulator) { [] }
-  let(:command_map) { {} }
 
   subject do
-    LogStash::Plugin.lookup("input", "redis")
-      .new(cfg).add_external_redis_builder(builder)
+    LogStash::Inputs::Redis.new(config)
   end
 
   context 'construction' do
     it 'registers the input' do
-      expect {subject.register}.not_to raise_error
+      expect { subject.register }.not_to raise_error
     end
   end
 
   context 'renamed redis commands' do
-    let(:cfg) {
-      {'key' => 'foo',
-      'data_type' => data_type,
-      'command_map' =>
-        {
-        'blpop' => 'testblpop',
-        'evalsha' => 'testevalsha',
-        'lrange' => 'testlrange',
-        'ltrim' => 'testltrim',
-        'script' => 'testscript',
-        'subscribe' => 'testsubscribe',
-        'psubscribe' => 'testpsubscribe',
-        },
-        'batch_count' => 2
+    let(:config) do
+      {
+          'key' => 'foo',
+          'data_type' => data_type,
+          'command_map' => {
+              'blpop' => 'testblpop',
+              'evalsha' => 'testevalsha',
+              'lrange' => 'testlrange',
+              'ltrim' => 'testltrim',
+              'script' => 'testscript',
+              'subscribe' => 'testsubscribe',
+              'psubscribe' => 'testpsubscribe',
+          },
+          'batch_count' => 2
       }
-    }
-
-    before do
-      subject.register
-      allow(redis).to receive(:connected?)
-      allow(redis).to receive(:client).and_return(connection)
-      allow(connection).to receive(:command_map).and_return(command_map)
     end
 
     it 'sets the renamed commands in the command map' do
-      allow(redis).to receive(:script)
-      allow(redis).to receive(:evalsha).and_return([])
-
-      tt = Thread.new do
-        sleep 0.01
-        subject.do_stop
+      allow_any_instance_of( Redis::Client ).to receive(:call) do |_, command|
+        expect(command[0]).to eql :script
+        expect(command[1]).to eql 'load'
       end
 
-      subject.run(accumulator)
-      tt.join
+      subject.register
+      redis = subject.send :connect
 
-      expect(command_map[:blpop]).to eq cfg['command_map']['blpop'].to_sym
-      expect(command_map[:evalsha]).to eq cfg['command_map']['evalsha'].to_sym
-      expect(command_map[:lrange]).to eq cfg['command_map']['lrange'].to_sym
-      expect(command_map[:ltrim]).to eq cfg['command_map']['ltrim'].to_sym
-      expect(command_map[:script]).to eq cfg['command_map']['script'].to_sym
-      expect(command_map[:subscribe]).to eq cfg['command_map']['subscribe'].to_sym
-      expect(command_map[:psubscribe]).to eq cfg['command_map']['psubscribe'].to_sym
+      command_map = redis._client.command_map
+
+      expect(command_map[:blpop]).to eq config['command_map']['blpop'].to_sym
+      expect(command_map[:evalsha]).to eq config['command_map']['evalsha'].to_sym
+      expect(command_map[:lrange]).to eq config['command_map']['lrange'].to_sym
+      expect(command_map[:ltrim]).to eq config['command_map']['ltrim'].to_sym
+      expect(command_map[:script]).to eq config['command_map']['script'].to_sym
+      expect(command_map[:subscribe]).to eq config['command_map']['subscribe'].to_sym
+      expect(command_map[:psubscribe]).to eq config['command_map']['psubscribe'].to_sym
     end
 
     it 'loads the batch script with the renamed command' do
-      capture = nil
-      allow(redis).to receive(:script) { |load, lua_script| capture = lua_script }
-      allow(redis).to receive(:evalsha).and_return([])
+      expect_any_instance_of( Redis::Client ).to receive(:call) do |_, command|
+        expect(command[0]).to eql :script
+        expect(command[1]).to eql 'load'
 
-      tt = Thread.new do
-        sleep 0.01
-        subject.do_stop
+        script = command[2]
+        expect(script).to include "redis.call('#{config['command_map']['lrange']}', KEYS[1], 0, batchsize)"
+        expect(script).to include "redis.call('#{config['command_map']['ltrim']}', KEYS[1], batchsize + 1, -1)"
       end
 
-      subject.run(accumulator)
-      tt.join
-
-      expect(capture).to include "redis.call('#{cfg['command_map']['lrange']}', KEYS[1], 0, batchsize)"
-      expect(capture).to include "redis.call('#{cfg['command_map']['ltrim']}', KEYS[1], batchsize + 1, -1)"
+      subject.register
+      subject.send :connect
     end
   end
 
-
   context 'runtime for list data_type' do
+
     before do
       subject.register
+      allow_any_instance_of( Redis::Client ).to receive(:connected?).and_return true
+      allow_any_instance_of( Redis::Client ).to receive(:disconnect)
+      allow_any_instance_of( Redis ).to receive(:quit)
+    end
+
+    after do
+      subject.stop
     end
 
     context 'close when redis is unset' do
-      let(:quit_calls) { [:quit, :unsubscribe, :punsubscribe, :connection, :disconnect!] }
 
       it 'does not attempt to quit' do
-        allow(redis).to receive(:nil?).and_return(true)
-        quit_calls.each do |call|
-          expect(redis).not_to receive(call)
-        end
-        expect {subject.do_stop}.not_to raise_error
+        expect_any_instance_of( Redis::Client ).to_not receive(:call)
+        expect_any_instance_of( Redis::Client ).to_not receive(:disconnect)
+
+        expect { subject.do_stop }.not_to raise_error
       end
     end
 
     it 'calling the run method, adds events to the queue' do
-      expect(redis).to receive(:blpop).at_least(:once).and_return(['foo', 'l1'])
+      allow_any_instance_of( Redis::Client ).to receive(:call_with_timeout) do |_, command, timeout, &block|
+        expect(command[0]).to eql :blpop
+        expect(command[1]).to eql ['foo', 0]
+        expect(command[2]).to eql 1
+      end.and_return ['foo', "{\"foo1\":\"bar\""], nil
 
-      allow(redis).to receive(:connected?).and_return(connected.last)
-      allow(redis).to receive(:quit)
-
-      tt = Thread.new do
-        sleep 0.01
-        subject.do_stop
+      thread = Thread.new do
+        subject.run(queue)
       end
+      thread.join(1.0)
 
-      subject.run(accumulator)
-
-      tt.join
-
-      expect(accumulator.size).to be > 0
+      expect( queue.size ).to be > 0
     end
 
     context "when the batch size is greater than 1" do
       let(:batch_count) { 10 }
-      let(:rates) { [] }
-
-      before do
-        allow(redis).to receive(:connected?).and_return(connected.last)
-        allow(redis).to receive(:script)
-        allow(redis).to receive(:quit)
-      end
 
       it 'calling the run method, adds events to the queue' do
-        expect(redis).to receive(:evalsha).at_least(:once).and_return(['a', 'b'])
+        allow_any_instance_of( Redis ).to receive(:script)
+        allow_any_instance_of( Redis::Client ).to receive(:call) do |_, command|
+          expect(command[0]).to eql :evalsha
+        end.and_return ['{"a": 1}', '{"b":'], []
 
-        tt = Thread.new do
-          sleep 0.01
-          subject.do_stop
+        thread = Thread.new do
+          subject.run(queue)
         end
+        thread.join(1.0)
 
-        subject.run(accumulator)
-
-        tt.join
-        expect(accumulator.size).to be > 0
+        expect( queue.size ).to be > 0
       end
     end
 
@@ -220,20 +197,18 @@ describe LogStash::Inputs::Redis do
       let(:rates) { [] }
 
       it 'will throttle the loop' do
-        allow(redis).to receive(:evalsha) do
+        allow_any_instance_of( Redis ).to receive(:script)
+        allow_any_instance_of( Redis::Client ).to receive(:call) do |_, command|
+          expect(command[0]).to eql :evalsha
           rates.unshift Time.now.to_f
-          []
-        end
-        allow(redis).to receive(:connected?).and_return(connected.last)
-        allow(redis).to receive(:script)
-        allow(redis).to receive(:quit)
+        end.and_return []
 
         tt = Thread.new do
           sleep 1
           subject.do_stop
         end
 
-        subject.run(accumulator)
+        subject.run(queue)
 
         tt.join
 
@@ -242,7 +217,7 @@ describe LogStash::Inputs::Redis do
           inters << x - y
         end
 
-        expect(accumulator.size).to eq(0)
+        expect( queue.size ).to eq(0)
         inters.each do |delta|
           expect(delta).to be_within(0.01).of(LogStash::Inputs::Redis::BATCH_EMPTY_SLEEP)
         end
@@ -250,16 +225,17 @@ describe LogStash::Inputs::Redis do
     end
 
     it 'multiple close calls, calls to redis once' do
-      subject.use_redis(redis)
-      allow(redis).to receive(:blpop).and_return(['foo', 'l1'])
-      expect(redis).to receive(:connected?).and_return(connected.last)
+      # subject.use_redis(redis)
+      # allow(redis).to receive(:blpop).and_return(['foo', 'l1'])
+      # expect(redis).to receive(:connected?).and_return(connected.last)
+      allow_any_instance_of( Redis::Client ).to receive(:connected?).and_return true, false
+      # allow_any_instance_of( Redis::Client ).to receive(:disconnect)
       quit_calls.each do |call|
-        expect(redis).to receive(call).at_most(:once)
+        allow_any_instance_of( Redis ).to receive(call).at_most(:once)
       end
 
       subject.do_stop
-      connected.push(false) #can't use let block here so push to array
-      expect {subject.do_stop}.not_to raise_error
+      expect { subject.do_stop }.not_to raise_error
       subject.do_stop
     end
   end
@@ -267,7 +243,7 @@ describe LogStash::Inputs::Redis do
   context 'for the subscribe data_types' do
     def run_it_thread(inst)
       Thread.new(inst) do |subj|
-        subj.run(accumulator)
+        subj.run(queue)
       end
     end
 
@@ -283,35 +259,21 @@ describe LogStash::Inputs::Redis do
     def close_thread(inst, rt)
       Thread.new(inst, rt) do |subj, runner|
         # block for the messages
-        e1 = accumulator.pop
-        e2 = accumulator.pop
+        e1 = queue.pop
+        e2 = queue.pop
         # put em back for the tests
-        accumulator.push(e1)
-        accumulator.push(e2)
+        queue.push(e1)
+        queue.push(e2)
         runner.raise(LogStash::ShutdownSignal)
         subj.close
       end
     end
 
-    let(:accumulator) { Queue.new }
-
-    let(:instance) do
-      inst = described_class.new(cfg)
-      inst.register
-      inst
-    end
-
     before(:example, type: :mocked) do
       subject.register
-      subject.use_redis(redis)
-      allow(connection).to receive(:is_a?).and_return(true)
-      allow(redis).to receive(:client).and_return(connection)
-      expect(redis).to receive(:connected?).and_return(connected.last)
-      allow(connection).to receive(:unsubscribe)
-      allow(connection).to receive(:punsubscribe)
-
+      allow_any_instance_of( Redis::Client ).to receive(:connected?).and_return true, false
       quit_calls.each do |call|
-        expect(redis).to receive(call).at_most(:once)
+        allow_any_instance_of( Redis ).to receive(call).at_most(:once)
       end
     end
 
@@ -322,8 +284,7 @@ describe LogStash::Inputs::Redis do
       context 'mocked redis' do
         it 'multiple stop calls, calls to redis once', type: :mocked do
           subject.do_stop
-          connected.push(false) #can't use let block here so push to array
-          expect {subject.do_stop}.not_to raise_error
+          expect { subject.do_stop }.not_to raise_error
           subject.do_stop
         end
       end
@@ -331,23 +292,23 @@ describe LogStash::Inputs::Redis do
       context 'real redis', :redis => true do
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
-          rt = run_it_thread(instance)
+          rt = run_it_thread(subject)
           #simulate the other system thread
-          publish_thread(instance.new_redis_instance, 'c').join
+          publish_thread(subject.send(:new_redis_instance), 'c').join
           #simulate the pipeline thread
-          close_thread(instance, rt).join
+          close_thread(subject, rt).join
 
-          expect(accumulator.size).to eq(2)
+          expect(queue.size).to eq(2)
         end
         it 'events had redis_channel' do
           #simulate the input thread
-          rt = run_it_thread(instance)
+          rt = run_it_thread(subject)
           #simulate the other system thread
-          publish_thread(instance.new_redis_instance, 'c').join
+          publish_thread(subject.send(:new_redis_instance), 'c').join
           #simulate the pipeline thread
-          close_thread(instance, rt).join
-          e1 = accumulator.pop
-          e2 = accumulator.pop
+          close_thread(subject, rt).join
+          e1 = queue.pop
+          e2 = queue.pop
           expect(e1.get('[@metadata][redis_channel]')).to eq('foo')
           expect(e2.get('[@metadata][redis_channel]')).to eq('foo')
         end
@@ -361,8 +322,7 @@ describe LogStash::Inputs::Redis do
       context 'mocked redis' do
         it 'multiple stop calls, calls to redis once', type: :mocked do
           subject.do_stop
-          connected.push(false) #can't use let block here so push to array
-          expect {subject.do_stop}.not_to raise_error
+          expect { subject.do_stop }.not_to raise_error
           subject.do_stop
         end
       end
@@ -370,23 +330,24 @@ describe LogStash::Inputs::Redis do
       context 'real redis', :redis => true do
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
-          rt = run_it_thread(instance)
+          rt = run_it_thread(subject)
           #simulate the other system thread
-          publish_thread(instance.new_redis_instance, 'pc').join
+          publish_thread(subject.send(:new_redis_instance), 'pc').join
           #simulate the pipeline thread
-          close_thread(instance, rt).join
+          close_thread(subject, rt).join
 
-          expect(accumulator.size).to eq(2)
+          expect(queue.size).to eq(2)
         end
+
         it 'events had redis_channel' do
           #simulate the input thread
-          rt = run_it_thread(instance)
+          rt = run_it_thread(subject)
           #simulate the other system thread
-          publish_thread(instance.new_redis_instance, 'pc').join
+          publish_thread(subject.send(:new_redis_instance), 'pc').join
           #simulate the pipeline thread
-          close_thread(instance, rt).join
-          e1 = accumulator.pop
-          e2 = accumulator.pop
+          close_thread(subject, rt).join
+          e1 = queue.pop
+          e2 = queue.pop
           expect(e1.get('[@metadata][redis_channel]')).to eq('foo')
           expect(e2.get('[@metadata][redis_channel]')).to eq('foo')
         end
@@ -394,15 +355,23 @@ describe LogStash::Inputs::Redis do
     end
   end
 
-  describe LogStash::Inputs::Redis do
-    context "when using data type" do
-      ["list", "channel", "pattern_channel"].each do |data_type|
-        context data_type do
-          it_behaves_like "an interruptible input plugin" do
-            let(:config) { {'key' => 'foo', 'data_type' => data_type } }
-          end
+  context "when using data type" do
+
+    # before do
+    #   allow_any_instance_of( Redis ).to receive(:evalsha).and_return []
+    #   allow_any_instance_of( Redis ).to receive(:script)
+    #   allow_any_instance_of( Redis ).to receive(:psubscribe)
+    #   allow_any_instance_of( Redis ).to receive(:subscribe)
+    #   allow_any_instance_of( Redis ).to receive(:quit)
+    # end
+
+    ["list", "channel", "pattern_channel"].each do |data_type|
+      context data_type do
+        it_behaves_like "an interruptible input plugin", :redis => true do
+          let(:config) { { 'key' => 'foo', 'data_type' => data_type } }
         end
       end
     end
+
   end
 end
