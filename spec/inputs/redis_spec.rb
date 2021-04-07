@@ -365,14 +365,6 @@ describe LogStash::Inputs::Redis do
 
   context "when using data type" do
 
-    # before do
-    #   allow_any_instance_of( Redis ).to receive(:evalsha).and_return []
-    #   allow_any_instance_of( Redis ).to receive(:script)
-    #   allow_any_instance_of( Redis ).to receive(:psubscribe)
-    #   allow_any_instance_of( Redis ).to receive(:subscribe)
-    #   allow_any_instance_of( Redis ).to receive(:quit)
-    # end
-
     ["list", "channel", "pattern_channel"].each do |data_type|
       context data_type do
         it_behaves_like "an interruptible input plugin", :redis => true do
