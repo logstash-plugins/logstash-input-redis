@@ -17,11 +17,15 @@ def populate(key, event_count)
 end
 
 def process(conf, event_count)
-  events = input(conf) do |pipeline, queue|
-    event_count.times.map{queue.pop}
+  events = input(conf) do |_, queue|
+    sleep 0.1 until queue.size >= event_count
+    queue.size.times.map { queue.pop }
   end
-
-  expect(events.map{|evt| evt.get("sequence")}).to eq((0..event_count.pred).to_a)
+  # due multiple workers we get events out-of-order in the output
+  events.sort! { |a, b| a.get('sequence') <=> b.get('sequence') }
+  expect(events[0].get('sequence')).to eq(0)
+  expect(events[100].get('sequence')).to eq(100)
+  expect(events[1000].get('sequence')).to eq(1000)
 end
 
 # integration tests ---------------------
@@ -31,7 +35,6 @@ describe "inputs/redis", :redis => true do
   it "should read events from a list" do
     key = SecureRandom.hex
     event_count = 1000 + rand(50)
-    # event_count = 100
     conf = <<-CONFIG
       input {
         redis {
@@ -249,6 +252,9 @@ describe LogStash::Inputs::Redis do
   end
 
   context 'for the subscribe data_types' do
+
+    before { subject.register }
+
     def run_it_thread(inst)
       Thread.new(inst) do |subj|
         subj.run(queue)
@@ -288,6 +294,8 @@ describe LogStash::Inputs::Redis do
     context 'runtime for channel data_type' do
       let(:data_type) { 'channel' }
       let(:quit_calls) { [:unsubscribe, :connection] }
+
+      before { subject.register }
 
       context 'mocked redis' do
         it 'multiple stop calls, calls to redis once', type: :mocked do
