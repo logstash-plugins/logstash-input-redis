@@ -8,6 +8,6 @@ addons:
     packages:
       - redis-server
 
-#before_install: # Redis tried to bind to ::1 but IPv6 isn't supported
-#  - sudo service redis-server stop
-#  - sudo service redis-server start --bind 127.0.0.1
+before_install:
+  - sudo service redis-server stop
+  - sudo service redis-server start --bind 0.0.0.0
