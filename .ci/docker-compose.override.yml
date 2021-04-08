@@ -1,7 +1,0 @@
-version: '3'
-
-services:
-
-  logstash:
-    ports: # gain access to Redis
-      - "6379:6379"
