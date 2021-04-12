@@ -166,7 +166,6 @@ describe LogStash::Inputs::Redis do
       allow_any_instance_of( Redis::Client ).to receive(:call_with_timeout) do |_, command, timeout, &block|
         expect(command[0]).to eql :blpop
         expect(command[1]).to eql ['foo', 0]
-        expect(command[2]).to eql 1
       end.and_return ['foo', "{\"foo1\":\"bar\""], nil
 
       tt = Thread.new do
