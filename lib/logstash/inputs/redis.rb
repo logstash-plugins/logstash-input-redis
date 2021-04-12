@@ -107,26 +107,22 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
   # private
   def redis_params
-    if @path.nil?
-      connectionParams = {
-        :host => @host,
-        :port => @port
-      }
-    else
-      @logger.warn("Parameter 'path' is set, ignoring parameters: 'host' and 'port'")
-      connectionParams = {
-        :path => @path
-      }
-    end
-
-    baseParams = {
-      :timeout => @timeout,
-      :db => @db,
-      :password => @password.nil? ? nil : @password.value,
-      :ssl => @ssl
+    params = {
+        :timeout => @timeout,
+        :db => @db,
+        :password => @password.nil? ? nil : @password.value,
+        :ssl => @ssl
     }
 
-    return connectionParams.merge(baseParams)
+    if @path.nil?
+      params[:host] = @host
+      params[:port] = @port
+    else
+      @logger.warn("Parameter 'path' is set, ignoring parameters: 'host' and 'port'")
+      params[:path] = @path
+    end
+
+    params
   end
 
   TIMEOUT = 5 # Redis only supports Integer values
