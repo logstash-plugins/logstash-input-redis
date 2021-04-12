@@ -254,9 +254,9 @@ describe LogStash::Inputs::Redis do
 
     before { subject.register }
 
-    def run_it_thread(inst)
-      Thread.new(inst) do |subj|
-        subj.run(queue)
+    def run_it_thread(plugin)
+      Thread.new(plugin) do |subject|
+        subject.run(queue)
       end
     end
 
@@ -269,8 +269,8 @@ describe LogStash::Inputs::Redis do
       end
     end
 
-    def close_thread(inst, rt)
-      Thread.new(inst, rt) do |subj, runner|
+    def close_thread(plugin, runner_thread)
+      Thread.new(plugin, runner_thread) do |subject, runner|
         # block for the messages
         e1 = queue.pop
         e2 = queue.pop
@@ -278,7 +278,20 @@ describe LogStash::Inputs::Redis do
         queue.push(e1)
         queue.push(e2)
         runner.raise(LogStash::ShutdownSignal)
-        subj.close
+        subject.close
+      end
+    end
+
+    def stub_plugin_timeout(timeout)
+      value = LogStash::Inputs::Redis::TIMEOUT
+      begin
+        LogStash::Inputs::Redis.send :remove_const, :TIMEOUT
+        LogStash::Inputs::Redis.const_set :TIMEOUT, timeout
+
+        yield
+      ensure
+        LogStash::Inputs::Redis.send :remove_const, :TIMEOUT rescue nil
+        LogStash::Inputs::Redis.const_set :TIMEOUT, value
       end
     end
 
@@ -315,6 +328,23 @@ describe LogStash::Inputs::Redis do
 
           expect(queue.size).to eq(2)
         end
+
+        it 'calling the run method, adds events to the queue (after timeout)' do
+          stub_plugin_timeout(0.5) do
+            #simulate the input thread
+            rt = run_it_thread(subject)
+            [ :warn, :error ].each { |level| expect(subject.logger).not_to receive(level) }
+            #make sure the Redis call times out and gets retried
+            sleep(LogStash::Inputs::Redis::TIMEOUT * 4)
+            #simulate the other system thread
+            publish_thread(subject.send(:new_redis_instance), 'c').join
+            #simulate the pipeline thread
+            close_thread(subject, rt).join
+
+            expect(queue.size).to eq(2)
+          end
+        end
+
         it 'events had redis_channel' do
           #simulate the input thread
           rt = run_it_thread(subject)
@@ -352,6 +382,22 @@ describe LogStash::Inputs::Redis do
           close_thread(subject, rt).join
 
           expect(queue.size).to eq(2)
+        end
+
+        it 'calling the run method, adds events to the queue (after timeout)' do
+          stub_plugin_timeout(0.5) do
+            #simulate the input thread
+            rt = run_it_thread(subject)
+            [ :warn, :error ].each { |level| expect(subject.logger).not_to receive(level) }
+            #make sure the Redis call times out and gets retried
+            sleep(LogStash::Inputs::Redis::TIMEOUT * 4)
+            #simulate the other system thread
+            publish_thread(subject.send(:new_redis_instance), 'c').join
+            #simulate the pipeline thread
+            close_thread(subject, rt).join
+
+            expect(queue.size).to eq(2)
+          end
         end
 
         it 'events had redis_channel' do

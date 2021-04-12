@@ -126,7 +126,6 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   end
 
   TIMEOUT = 5 # Redis only supports Integer values
-  private_constant :TIMEOUT
 
   def new_redis_instance
     ::Redis.new(redis_params)
