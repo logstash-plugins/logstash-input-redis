@@ -129,6 +129,9 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     return connectionParams.merge(baseParams)
   end
 
+  TIMEOUT = 5 # Redis only supports Integer values
+  private_constant :TIMEOUT
+
   def new_redis_instance
     ::Redis.new(redis_params)
   end
@@ -238,7 +241,7 @@ EOF
   end
 
   def list_single_listener(redis, output_queue)
-    item = redis.blpop(@key, 0, :timeout => 1)
+    item = redis.blpop(@key, 0, :timeout => TIMEOUT)
     return unless item # from timeout or other conditions
 
     # blpop returns the 'key' read from as well as the item result
@@ -268,27 +271,36 @@ EOF
     begin
       @redis ||= connect
       yield
+    rescue ::Redis::TimeoutError
+      @logger.debug("Redis timeout, retrying")
+      retry unless stop?
+    rescue ::Redis::BaseConnectionError, ::Redis::ProtocolError => e
+      @logger.warn("Redis connection error", message: e.message, exception: e.class)
+      reset_and_sleep
+      retry unless stop?
     rescue ::Redis::BaseError => e
-      @logger.warn("Redis connection problem", :exception => e)
-      # Reset the redis variable to trigger reconnect
-      @redis = nil
-      Stud.stoppable_sleep(1) { stop? }
-      retry if !stop?
+      @logger.warn("Redis error", message: e.message, exception: e.class, backtrace: e.backtrace)
+      reset_and_sleep
+      retry unless stop?
     end
+  end
+
+  def reset_and_sleep
+    # Reset the redis variable to trigger reconnect
+    @redis = nil
+    Stud.stoppable_sleep(1) { stop? }
   end
 
   # private
   def channel_runner(output_queue)
-    redis_runner do
-      channel_listener(output_queue)
-    end
+    redis_runner { channel_listener(output_queue) }
   end
 
   # private
   def channel_listener(output_queue)
-    @redis.subscribe(@key) do |on|
+    @redis.subscribe_with_timeout(TIMEOUT, @key) do |on|
       on.subscribe do |channel, count|
-        @logger.info("Subscribed", :channel => channel, :count => count)
+        @logger.debug("Subscribed", :channel => channel, :count => count)
       end
 
       on.message do |channel, message|
@@ -296,22 +308,20 @@ EOF
       end
 
       on.unsubscribe do |channel, count|
-        @logger.info("Unsubscribed", :channel => channel, :count => count)
+        @logger.debug("Unsubscribed", :channel => channel, :count => count)
       end
     end
   end
 
   def pattern_channel_runner(output_queue)
-    redis_runner do
-      pattern_channel_listener(output_queue)
-    end
+    redis_runner { pattern_channel_listener(output_queue) }
   end
 
   # private
   def pattern_channel_listener(output_queue)
-    @redis.psubscribe @key do |on|
+    @redis.psubscribe_with_timeout(TIMEOUT, @key) do |on|
       on.psubscribe do |channel, count|
-        @logger.info("Subscribed", :channel => channel, :count => count)
+        @logger.debug("Subscribed", :channel => channel, :count => count)
       end
 
       on.pmessage do |pattern, channel, message|
@@ -319,11 +329,9 @@ EOF
       end
 
       on.punsubscribe do |channel, count|
-        @logger.info("Unsubscribed", :channel => channel, :count => count)
+        @logger.debug("Unsubscribed", :channel => channel, :count => count)
       end
     end
   end
-
-# end
 
 end end end # Redis Inputs  LogStash
