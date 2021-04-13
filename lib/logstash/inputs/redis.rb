@@ -281,6 +281,9 @@ EOF
       @logger.warn("Redis connection error", info)
     when ::Redis::BaseError
       @logger.error("Redis error", info)
+    when ::LogStash::ShutdownSignal
+      @logger.debug("Received shutdown signal")
+      return false # stop retry-ing
     else
       info[:backtrace] ||= e.backtrace
       @logger.error("Unexpected error", info)
