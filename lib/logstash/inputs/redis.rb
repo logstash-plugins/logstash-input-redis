@@ -107,27 +107,25 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
   # private
   def redis_params
-    if @path.nil?
-      connectionParams = {
-        :host => @host,
-        :port => @port
-      }
-    else
-      @logger.warn("Parameter 'path' is set, ignoring parameters: 'host' and 'port'")
-      connectionParams = {
-        :path => @path
-      }
-    end
-
-    baseParams = {
-      :timeout => @timeout,
-      :db => @db,
-      :password => @password.nil? ? nil : @password.value,
-      :ssl => @ssl
+    params = {
+        :timeout => @timeout,
+        :db => @db,
+        :password => @password.nil? ? nil : @password.value,
+        :ssl => @ssl
     }
 
-    return connectionParams.merge(baseParams)
+    if @path.nil?
+      params[:host] = @host
+      params[:port] = @port
+    else
+      @logger.warn("Parameter 'path' is set, ignoring parameters: 'host' and 'port'")
+      params[:path] = @path
+    end
+
+    params
   end
+
+  TIMEOUT = 5 # Redis only supports Integer values
 
   def new_redis_instance
     ::Redis.new(redis_params)
@@ -174,9 +172,12 @@ EOF
 
   # private
   def list_stop
-    return if @redis.nil? || !@redis.connected?
+    redis = @redis # might change during method invocation
+    return if redis.nil? || !redis.connected?
 
-    @redis.quit rescue nil
+    redis.quit rescue nil
+    # check if input retried while executing
+    list_stop unless redis.equal? @redis
     @redis = nil
   end
 
@@ -186,15 +187,8 @@ EOF
       begin
         @redis ||= connect
         @list_method.call(@redis, output_queue)
-      rescue ::Redis::BaseError => e
-        info = { message: e.message, exception: e.class }
-        info[:backtrace] = e.backtrace if @logger.debug?
-        @logger.warn("Redis connection problem", info)
-        # Reset the redis variable to trigger reconnect
-        @redis = nil
-        # this sleep does not need to be stoppable as its
-        # in a while !stop? loop
-        sleep 1
+      rescue => e
+        retry if handle_error(e)
       end
     end
   end
@@ -238,7 +232,7 @@ EOF
   end
 
   def list_single_listener(redis, output_queue)
-    item = redis.blpop(@key, 0, :timeout => 1)
+    item = redis.blpop(@key, 0, :timeout => TIMEOUT)
     return unless item # from timeout or other conditions
 
     # blpop returns the 'key' read from as well as the item result
@@ -248,18 +242,20 @@ EOF
 
   # private
   def subscribe_stop
-    return if @redis.nil? || !@redis.connected?
-    # if its a SubscribedClient then:
-    # it does not have a disconnect method (yet)
-    if @redis.subscribed?
+    redis = @redis # might change during method invocation
+    return if redis.nil? || !redis.connected?
+
+    if redis.subscribed?
       if @data_type == 'pattern_channel'
-        @redis.punsubscribe
+        redis.punsubscribe
       else
-        @redis.unsubscribe
+        redis.unsubscribe
       end
     else
-      @redis.disconnect!
+      redis.disconnect!
     end
+    # check if input retried while executing
+    subscribe_stop unless redis.equal? @redis
     @redis = nil
   end
 
@@ -268,27 +264,48 @@ EOF
     begin
       @redis ||= connect
       yield
-    rescue ::Redis::BaseError => e
-      @logger.warn("Redis connection problem", :exception => e)
-      # Reset the redis variable to trigger reconnect
-      @redis = nil
-      Stud.stoppable_sleep(1) { stop? }
-      retry if !stop?
+    rescue => e
+      retry if handle_error(e)
     end
+  end
+
+  def handle_error(e)
+    info = { message: e.message, exception: e.class }
+    info[:backtrace] = e.backtrace if @logger.debug?
+
+    case e
+    when ::Redis::TimeoutError
+      # expected for channels in case no data is available
+      @logger.debug("Redis timeout, retrying", info)
+    when ::Redis::BaseConnectionError, ::Redis::ProtocolError
+      @logger.warn("Redis connection error", info)
+    when ::Redis::BaseError
+      @logger.error("Redis error", info)
+    when ::LogStash::ShutdownSignal
+      @logger.debug("Received shutdown signal")
+      return false # stop retry-ing
+    else
+      info[:backtrace] ||= e.backtrace
+      @logger.error("Unexpected error", info)
+    end
+
+    # Reset the redis variable to trigger reconnect
+    @redis = nil
+
+    Stud.stoppable_sleep(1) { stop? }
+    !stop? # return true unless stop?
   end
 
   # private
   def channel_runner(output_queue)
-    redis_runner do
-      channel_listener(output_queue)
-    end
+    redis_runner { channel_listener(output_queue) }
   end
 
   # private
   def channel_listener(output_queue)
-    @redis.subscribe(@key) do |on|
+    @redis.subscribe_with_timeout(TIMEOUT, @key) do |on|
       on.subscribe do |channel, count|
-        @logger.info("Subscribed", :channel => channel, :count => count)
+        @logger.debug("Subscribed", :channel => channel, :count => count)
       end
 
       on.message do |channel, message|
@@ -296,22 +313,20 @@ EOF
       end
 
       on.unsubscribe do |channel, count|
-        @logger.info("Unsubscribed", :channel => channel, :count => count)
+        @logger.debug("Unsubscribed", :channel => channel, :count => count)
       end
     end
   end
 
   def pattern_channel_runner(output_queue)
-    redis_runner do
-      pattern_channel_listener(output_queue)
-    end
+    redis_runner { pattern_channel_listener(output_queue) }
   end
 
   # private
   def pattern_channel_listener(output_queue)
-    @redis.psubscribe @key do |on|
+    @redis.psubscribe_with_timeout(TIMEOUT, @key) do |on|
       on.psubscribe do |channel, count|
-        @logger.info("Subscribed", :channel => channel, :count => count)
+        @logger.debug("Subscribed", :channel => channel, :count => count)
       end
 
       on.pmessage do |pattern, channel, message|
@@ -319,11 +334,9 @@ EOF
       end
 
       on.punsubscribe do |channel, count|
-        @logger.info("Unsubscribed", :channel => channel, :count => count)
+        @logger.debug("Unsubscribed", :channel => channel, :count => count)
       end
     end
   end
-
-# end
 
 end end end # Redis Inputs  LogStash

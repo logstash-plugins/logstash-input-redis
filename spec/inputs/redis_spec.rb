@@ -17,11 +17,15 @@ def populate(key, event_count)
 end
 
 def process(conf, event_count)
-  events = input(conf) do |pipeline, queue|
-    event_count.times.map{queue.pop}
+  events = input(conf) do |_, queue|
+    sleep 0.1 until queue.size >= event_count
+    queue.size.times.map { queue.pop }
   end
-
-  expect(events.map{|evt| evt.get("sequence")}).to eq((0..event_count.pred).to_a)
+  # due multiple workers we get events out-of-order in the output
+  events.sort! { |a, b| a.get('sequence') <=> b.get('sequence') }
+  expect(events[0].get('sequence')).to eq(0)
+  expect(events[100].get('sequence')).to eq(100)
+  expect(events[1000].get('sequence')).to eq(1000)
 end
 
 # integration tests ---------------------
@@ -31,7 +35,6 @@ describe "inputs/redis", :redis => true do
   it "should read events from a list" do
     key = SecureRandom.hex
     event_count = 1000 + rand(50)
-    # event_count = 100
     conf = <<-CONFIG
       input {
         redis {
@@ -163,11 +166,37 @@ describe LogStash::Inputs::Redis do
       allow_any_instance_of( Redis::Client ).to receive(:call_with_timeout) do |_, command, timeout, &block|
         expect(command[0]).to eql :blpop
         expect(command[1]).to eql ['foo', 0]
-        expect(command[2]).to eql 1
       end.and_return ['foo', "{\"foo1\":\"bar\""], nil
 
       tt = Thread.new do
         sleep 0.25
+        subject.do_stop
+      end
+
+      subject.run(queue)
+
+      tt.join
+
+      expect( queue.size ).to be > 0
+    end
+
+    it 'keep running when a connection error occurs' do
+      raised = false
+      allow_any_instance_of( Redis::Client ).to receive(:call_with_timeout) do |_, command, timeout, &block|
+        expect(command[0]).to eql :blpop
+        unless raised
+          raised = true
+          raise Redis::CannotConnectError.new('test')
+        end
+        ['foo', "{\"after\":\"raise\"}"]
+      end
+
+      expect(subject.logger).to receive(:warn).with('Redis connection error',
+                                                    hash_including(:message=>"test", :exception=>Redis::CannotConnectError)
+      ).and_call_original
+
+      tt = Thread.new do
+        sleep 1.5 # allow for retry (sleep) after handle_error
         subject.do_stop
       end
 
@@ -233,9 +262,6 @@ describe LogStash::Inputs::Redis do
     end
 
     it 'multiple close calls, calls to redis once' do
-      # subject.use_redis(redis)
-      # allow(redis).to receive(:blpop).and_return(['foo', 'l1'])
-      # expect(redis).to receive(:connected?).and_return(connected.last)
       allow_any_instance_of( Redis::Client ).to receive(:connected?).and_return true, false
       # allow_any_instance_of( Redis::Client ).to receive(:disconnect)
       quit_calls.each do |call|
@@ -249,9 +275,12 @@ describe LogStash::Inputs::Redis do
   end
 
   context 'for the subscribe data_types' do
-    def run_it_thread(inst)
-      Thread.new(inst) do |subj|
-        subj.run(queue)
+
+    before { subject.register }
+
+    def run_it_thread(plugin)
+      Thread.new(plugin) do |subject|
+        subject.run(queue)
       end
     end
 
@@ -264,8 +293,8 @@ describe LogStash::Inputs::Redis do
       end
     end
 
-    def close_thread(inst, rt)
-      Thread.new(inst, rt) do |subj, runner|
+    def close_thread(plugin, runner_thread)
+      Thread.new(plugin, runner_thread) do |subject, runner|
         # block for the messages
         e1 = queue.pop
         e2 = queue.pop
@@ -273,7 +302,20 @@ describe LogStash::Inputs::Redis do
         queue.push(e1)
         queue.push(e2)
         runner.raise(LogStash::ShutdownSignal)
-        subj.close
+        subject.close
+      end
+    end
+
+    def stub_plugin_timeout(timeout)
+      value = LogStash::Inputs::Redis::TIMEOUT
+      begin
+        LogStash::Inputs::Redis.send :remove_const, :TIMEOUT
+        LogStash::Inputs::Redis.const_set :TIMEOUT, timeout
+
+        yield
+      ensure
+        LogStash::Inputs::Redis.send :remove_const, :TIMEOUT rescue nil
+        LogStash::Inputs::Redis.const_set :TIMEOUT, value
       end
     end
 
@@ -288,6 +330,8 @@ describe LogStash::Inputs::Redis do
     context 'runtime for channel data_type' do
       let(:data_type) { 'channel' }
       let(:quit_calls) { [:unsubscribe, :connection] }
+
+      before { subject.register }
 
       context 'mocked redis' do
         it 'multiple stop calls, calls to redis once', type: :mocked do
@@ -308,6 +352,23 @@ describe LogStash::Inputs::Redis do
 
           expect(queue.size).to eq(2)
         end
+
+        it 'calling the run method, adds events to the queue (after timeout)' do
+          stub_plugin_timeout(0.5) do
+            #simulate the input thread
+            rt = run_it_thread(subject)
+            [ :warn, :error ].each { |level| expect(subject.logger).not_to receive(level) }
+            #make sure the Redis call times out and gets retried
+            sleep(LogStash::Inputs::Redis::TIMEOUT * 4)
+            #simulate the other system thread
+            publish_thread(subject.send(:new_redis_instance), 'c').join
+            #simulate the pipeline thread
+            close_thread(subject, rt).join
+
+            expect(queue.size).to eq(2)
+          end
+        end
+
         it 'events had redis_channel' do
           #simulate the input thread
           rt = run_it_thread(subject)
@@ -345,6 +406,22 @@ describe LogStash::Inputs::Redis do
           close_thread(subject, rt).join
 
           expect(queue.size).to eq(2)
+        end
+
+        it 'calling the run method, adds events to the queue (after timeout)' do
+          stub_plugin_timeout(0.5) do
+            #simulate the input thread
+            rt = run_it_thread(subject)
+            [ :warn, :error ].each { |level| expect(subject.logger).not_to receive(level) }
+            #make sure the Redis call times out and gets retried
+            sleep(LogStash::Inputs::Redis::TIMEOUT * 4)
+            #simulate the other system thread
+            publish_thread(subject.send(:new_redis_instance), 'c').join
+            #simulate the pipeline thread
+            close_thread(subject, rt).join
+
+            expect(queue.size).to eq(2)
+          end
         end
 
         it 'events had redis_channel' do
