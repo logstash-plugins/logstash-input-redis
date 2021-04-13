@@ -172,9 +172,12 @@ EOF
 
   # private
   def list_stop
-    return if @redis.nil? || !@redis.connected?
+    redis = @redis # might change during method invocation
+    return if redis.nil? || !redis.connected?
 
-    @redis.quit rescue nil
+    redis.quit rescue nil
+    # check if input retried while executing
+    list_stop unless redis.equal? @redis
     @redis = nil
   end
 
@@ -239,18 +242,20 @@ EOF
 
   # private
   def subscribe_stop
-    return if @redis.nil? || !@redis.connected?
-    # if its a SubscribedClient then:
-    # it does not have a disconnect method (yet)
-    if @redis.subscribed? # @redis._client.is_a? ::Redis::SubscribedClient
+    redis = @redis # might change during method invocation
+    return if redis.nil? || !redis.connected?
+
+    if redis.subscribed?
       if @data_type == 'pattern_channel'
-        @redis.punsubscribe # @redis._client.punsubscribe
+        redis.punsubscribe
       else
-        @redis.unsubscribe # @redis._client.unsubscribe
+        redis.unsubscribe
       end
     else
-      @redis.disconnect!
+      redis.disconnect!
     end
+    # check if input retried while executing
+    subscribe_stop unless redis.equal? @redis
     @redis = nil
   end
 
