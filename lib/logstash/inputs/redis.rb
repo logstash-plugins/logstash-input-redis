@@ -184,15 +184,8 @@ EOF
       begin
         @redis ||= connect
         @list_method.call(@redis, output_queue)
-      rescue ::Redis::BaseError => e
-        info = { message: e.message, exception: e.class }
-        info[:backtrace] = e.backtrace if @logger.debug?
-        @logger.warn("Redis connection problem", info)
-        # Reset the redis variable to trigger reconnect
-        @redis = nil
-        # this sleep does not need to be stoppable as its
-        # in a while !stop? loop
-        sleep 1
+      rescue => e
+        retry if handle_error(e)
       end
     end
   end
@@ -249,11 +242,11 @@ EOF
     return if @redis.nil? || !@redis.connected?
     # if its a SubscribedClient then:
     # it does not have a disconnect method (yet)
-    if @redis.subscribed?
+    if @redis.subscribed? # @redis._client.is_a? ::Redis::SubscribedClient
       if @data_type == 'pattern_channel'
-        @redis.punsubscribe
+        @redis.punsubscribe # @redis._client.punsubscribe
       else
-        @redis.unsubscribe
+        @redis.unsubscribe # @redis._client.unsubscribe
       end
     else
       @redis.disconnect!
@@ -266,24 +259,33 @@ EOF
     begin
       @redis ||= connect
       yield
-    rescue ::Redis::TimeoutError
-      @logger.debug("Redis timeout, retrying")
-      retry unless stop?
-    rescue ::Redis::BaseConnectionError, ::Redis::ProtocolError => e
-      @logger.warn("Redis connection error", message: e.message, exception: e.class)
-      reset_and_sleep
-      retry unless stop?
-    rescue ::Redis::BaseError => e
-      @logger.warn("Redis error", message: e.message, exception: e.class, backtrace: e.backtrace)
-      reset_and_sleep
-      retry unless stop?
+    rescue => e
+      retry if handle_error(e)
     end
   end
 
-  def reset_and_sleep
+  def handle_error(e)
+    info = { message: e.message, exception: e.class }
+    info[:backtrace] = e.backtrace if @logger.debug?
+
+    case e
+    when ::Redis::TimeoutError
+      # expected for channels in case no data is available
+      @logger.debug("Redis timeout, retrying", info)
+    when ::Redis::BaseConnectionError, ::Redis::ProtocolError
+      @logger.warn("Redis connection error", info)
+    when ::Redis::BaseError
+      @logger.error("Redis error", info)
+    else
+      info[:backtrace] ||= e.backtrace
+      @logger.error("Unexpected error", info)
+    end
+
     # Reset the redis variable to trigger reconnect
     @redis = nil
+
     Stud.stoppable_sleep(1) { stop? }
+    !stop? # return true unless stop?
   end
 
   # private

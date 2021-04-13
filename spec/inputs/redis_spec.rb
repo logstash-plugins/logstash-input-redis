@@ -180,6 +180,33 @@ describe LogStash::Inputs::Redis do
       expect( queue.size ).to be > 0
     end
 
+    it 'keep running when a connection error occurs' do
+      raised = false
+      allow_any_instance_of( Redis::Client ).to receive(:call_with_timeout) do |_, command, timeout, &block|
+        expect(command[0]).to eql :blpop
+        unless raised
+          raised = true
+          raise Redis::CannotConnectError.new('test')
+        end
+        ['foo', "{\"after\":\"raise\"}"]
+      end
+
+      expect(subject.logger).to receive(:warn).with('Redis connection error',
+                                                    hash_including(:message=>"test", :exception=>Redis::CannotConnectError)
+      ).and_call_original
+
+      tt = Thread.new do
+        sleep 1.5 # allow for retry (sleep) after handle_error
+        subject.do_stop
+      end
+
+      subject.run(queue)
+
+      tt.join
+
+      expect( queue.size ).to be > 0
+    end
+
     context "when the batch size is greater than 1" do
       let(:batch_count) { 10 }
 
@@ -235,9 +262,6 @@ describe LogStash::Inputs::Redis do
     end
 
     it 'multiple close calls, calls to redis once' do
-      # subject.use_redis(redis)
-      # allow(redis).to receive(:blpop).and_return(['foo', 'l1'])
-      # expect(redis).to receive(:connected?).and_return(connected.last)
       allow_any_instance_of( Redis::Client ).to receive(:connected?).and_return true, false
       # allow_any_instance_of( Redis::Client ).to receive(:disconnect)
       quit_calls.each do |call|
