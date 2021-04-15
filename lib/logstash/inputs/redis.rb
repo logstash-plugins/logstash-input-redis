@@ -125,9 +125,6 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     params
   end
 
-  TIMEOUT = 5 # Redis only supports Integer values
-  private_constant :TIMEOUT
-
   def new_redis_instance
     ::Redis.new(redis_params)
   end
@@ -233,7 +230,7 @@ EOF
   end
 
   def list_single_listener(redis, output_queue)
-    item = redis.blpop(@key, 0, :timeout => TIMEOUT)
+    item = redis.blpop(@key, 0, :timeout => 1)
     return unless item # from timeout or other conditions
 
     # blpop returns the 'key' read from as well as the item result
@@ -299,14 +296,16 @@ EOF
 
   # private
   def channel_runner(output_queue)
-    redis_runner { channel_listener(output_queue) }
+    redis_runner do
+      channel_listener(output_queue)
+    end
   end
 
   # private
   def channel_listener(output_queue)
-    @redis.subscribe_with_timeout(TIMEOUT, @key) do |on|
+    @redis.subscribe(@key) do |on|
       on.subscribe do |channel, count|
-        @logger.debug("Subscribed", :channel => channel, :count => count)
+        @logger.info("Subscribed", :channel => channel, :count => count)
       end
 
       on.message do |channel, message|
@@ -314,20 +313,22 @@ EOF
       end
 
       on.unsubscribe do |channel, count|
-        @logger.debug("Unsubscribed", :channel => channel, :count => count)
+        @logger.info("Unsubscribed", :channel => channel, :count => count)
       end
     end
   end
 
   def pattern_channel_runner(output_queue)
-    redis_runner { pattern_channel_listener(output_queue) }
+    redis_runner do
+      pattern_channel_listener(output_queue)
+    end
   end
 
   # private
   def pattern_channel_listener(output_queue)
-    @redis.psubscribe_with_timeout(TIMEOUT, @key) do |on|
+    @redis.psubscribe @key do |on|
       on.psubscribe do |channel, count|
-        @logger.debug("Subscribed", :channel => channel, :count => count)
+        @logger.info("Subscribed", :channel => channel, :count => count)
       end
 
       on.pmessage do |pattern, channel, message|
@@ -335,7 +336,7 @@ EOF
       end
 
       on.punsubscribe do |channel, count|
-        @logger.debug("Unsubscribed", :channel => channel, :count => count)
+        @logger.info("Unsubscribed", :channel => channel, :count => count)
       end
     end
   end
