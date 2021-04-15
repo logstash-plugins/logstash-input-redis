@@ -1,5 +1,5 @@
 ## 3.7.0
-  - Fix: make sure plugin can be stop-ed in case of a channel data_type [#87](https://github.com/logstash-plugins/logstash-input-redis/pull/87)
+  - Fix: better (Redis) exception handling [#89](https://github.com/logstash-plugins/logstash-input-redis/pull/89)
   - Test: start running integration specs on CI
 
 ## 3.6.1
