@@ -180,7 +180,7 @@ describe LogStash::Inputs::Redis do
       expect( queue.size ).to be > 0
     end
 
-    it 'keep running when a connection error occurs' do
+    it 'keeps running when a connection error occurs' do
       raised = false
       allow_any_instance_of( Redis::Client ).to receive(:call_with_timeout) do |_, command, timeout, &block|
         expect(command[0]).to eql :blpop
@@ -196,7 +196,7 @@ describe LogStash::Inputs::Redis do
       ).and_call_original
 
       tt = Thread.new do
-        sleep 1.5 # allow for retry (sleep) after handle_error
+        sleep 2.0 # allow for retry (sleep) after handle_error
         subject.do_stop
       end
 
@@ -205,6 +205,42 @@ describe LogStash::Inputs::Redis do
       tt.join
 
       expect( queue.size ).to be > 0
+    end
+
+    context 'error handling' do
+
+      let(:config) do
+        super().merge 'batch_count' => 2
+      end
+
+      it 'keeps running when a (non-Redis) io error occurs' do
+        raised = false
+        allow(subject).to receive(:connect).and_return redis = double('redis')
+        allow(redis).to receive(:blpop).and_return nil
+        expect(redis).to receive(:evalsha) do
+          unless raised
+            raised = true
+            raise IOError.new('closed stream')
+          end
+          []
+        end.at_least(1)
+        redis
+        allow(subject).to receive(:stop)
+
+        expect(subject.logger).to receive(:error).with('Unexpected error',
+                                                       hash_including(:message=>'closed stream', :exception=>IOError)
+        ).and_call_original
+
+        tt = Thread.new do
+          sleep 2.0 # allow for retry (sleep) after handle_error
+          subject.do_stop
+        end
+
+        subject.run(queue)
+
+        tt.join
+      end
+
     end
 
     context "when the batch size is greater than 1" do
