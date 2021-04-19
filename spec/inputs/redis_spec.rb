@@ -204,7 +204,7 @@ describe LogStash::Inputs::Redis do
 
       tt.join
 
-      expect( queue.size ).to be > 0
+      try(3) { expect( queue.size ).to be > 0 }
     end
 
     context 'error handling' do
