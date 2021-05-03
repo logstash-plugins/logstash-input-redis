@@ -1,3 +1,7 @@
+## 3.7.0
+  - Fix: better (Redis) exception handling [#89](https://github.com/logstash-plugins/logstash-input-redis/pull/89)
+  - Test: start running integration specs on CI
+
 ## 3.6.1
   - Fix: resolve crash when commands_map is set [#86](https://github.com/logstash-plugins/logstash-input-redis/pull/86)
 

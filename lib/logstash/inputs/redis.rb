@@ -107,26 +107,22 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
 
   # private
   def redis_params
-    if @path.nil?
-      connectionParams = {
-        :host => @host,
-        :port => @port
-      }
-    else
-      @logger.warn("Parameter 'path' is set, ignoring parameters: 'host' and 'port'")
-      connectionParams = {
-        :path => @path
-      }
-    end
-
-    baseParams = {
-      :timeout => @timeout,
-      :db => @db,
-      :password => @password.nil? ? nil : @password.value,
-      :ssl => @ssl
+    params = {
+        :timeout => @timeout,
+        :db => @db,
+        :password => @password.nil? ? nil : @password.value,
+        :ssl => @ssl
     }
 
-    return connectionParams.merge(baseParams)
+    if @path.nil?
+      params[:host] = @host
+      params[:port] = @port
+    else
+      @logger.warn("Parameter 'path' is set, ignoring parameters: 'host' and 'port'")
+      params[:path] = @path
+    end
+
+    params
   end
 
   def new_redis_instance
@@ -174,9 +170,12 @@ EOF
 
   # private
   def list_stop
-    return if @redis.nil? || !@redis.connected?
+    redis = @redis # might change during method invocation
+    return if redis.nil? || !redis.connected?
 
-    @redis.quit rescue nil
+    redis.quit rescue nil # does client.disconnect internally
+    # check if input retried while executing
+    list_stop unless redis.equal? @redis
     @redis = nil
   end
 
@@ -186,15 +185,9 @@ EOF
       begin
         @redis ||= connect
         @list_method.call(@redis, output_queue)
-      rescue ::Redis::BaseError => e
-        info = { message: e.message, exception: e.class }
-        info[:backtrace] = e.backtrace if @logger.debug?
-        @logger.warn("Redis connection problem", info)
-        # Reset the redis variable to trigger reconnect
-        @redis = nil
-        # this sleep does not need to be stoppable as its
-        # in a while !stop? loop
-        sleep 1
+      rescue => e
+        log_error(e)
+        retry if reset_for_error_retry(e)
       end
     end
   end
@@ -248,18 +241,19 @@ EOF
 
   # private
   def subscribe_stop
-    return if @redis.nil? || !@redis.connected?
-    # if its a SubscribedClient then:
-    # it does not have a disconnect method (yet)
-    if @redis.subscribed?
+    redis = @redis # might change during method invocation
+    return if redis.nil? || !redis.connected?
+
+    if redis.subscribed?
       if @data_type == 'pattern_channel'
-        @redis.punsubscribe
+        redis.punsubscribe
       else
-        @redis.unsubscribe
+        redis.unsubscribe
       end
-    else
-      @redis.disconnect!
     end
+    redis.close rescue nil # does client.disconnect
+    # check if input retried while executing
+    subscribe_stop unless redis.equal? @redis
     @redis = nil
   end
 
@@ -268,13 +262,41 @@ EOF
     begin
       @redis ||= connect
       yield
-    rescue ::Redis::BaseError => e
-      @logger.warn("Redis connection problem", :exception => e)
-      # Reset the redis variable to trigger reconnect
-      @redis = nil
-      Stud.stoppable_sleep(1) { stop? }
-      retry if !stop?
+    rescue => e
+      log_error(e)
+      retry if reset_for_error_retry(e)
     end
+  end
+
+  def log_error(e)
+    info = { message: e.message, exception: e.class }
+    info[:backtrace] = e.backtrace if @logger.debug?
+
+    case e
+    when ::Redis::TimeoutError
+      # expected for channels in case no data is available
+      @logger.debug("Redis timeout, retrying", info)
+    when ::Redis::BaseConnectionError, ::Redis::ProtocolError
+      @logger.warn("Redis connection error", info)
+    when ::Redis::BaseError
+      @logger.error("Redis error", info)
+    when ::LogStash::ShutdownSignal
+      @logger.debug("Received shutdown signal")
+    else
+      info[:backtrace] ||= e.backtrace
+      @logger.error("Unexpected error", info)
+    end
+  end
+
+  # @return [true] if operation is fine to retry
+  def reset_for_error_retry(e)
+    return if e.is_a?(::LogStash::ShutdownSignal)
+
+    # Reset the redis variable to trigger reconnect
+    @redis = nil
+
+    Stud.stoppable_sleep(1) { stop? }
+    !stop? # retry if not stop-ing
   end
 
   # private
@@ -323,7 +345,5 @@ EOF
       end
     end
   end
-
-# end
 
 end end end # Redis Inputs  LogStash
