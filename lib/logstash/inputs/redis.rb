@@ -186,7 +186,8 @@ EOF
         @redis ||= connect
         @list_method.call(@redis, output_queue)
       rescue => e
-        retry unless handle_error(e)
+        log_error(e)
+        retry if reset_for_error_retry(e)
       end
     end
   end
@@ -263,12 +264,12 @@ EOF
       @redis ||= connect
       yield
     rescue => e
-      retry unless handle_error(e)
+      log_error(e)
+      retry if reset_for_error_retry(e)
     end
   end
 
-  # @return [true] if exception is handled and operation not be retried
-  def handle_error(e)
+  def log_error(e)
     info = { message: e.message, exception: e.class }
     info[:backtrace] = e.backtrace if @logger.debug?
 
@@ -282,17 +283,21 @@ EOF
       @logger.error("Redis error", info)
     when ::LogStash::ShutdownSignal
       @logger.debug("Received shutdown signal")
-      return true # immediately wrap up
     else
       info[:backtrace] ||= e.backtrace
       @logger.error("Unexpected error", info)
     end
+  end
+
+  # @return [true] if operation is fine to retry
+  def reset_for_error_retry(e)
+    return if e.is_a?(::LogStash::ShutdownSignal)
 
     # Reset the redis variable to trigger reconnect
     @redis = nil
 
     Stud.stoppable_sleep(1) { stop? }
-    stop? # do not retry
+    !stop? # retry if not stop-ing
   end
 
   # private
