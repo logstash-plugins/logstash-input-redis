@@ -173,7 +173,7 @@ EOF
     redis = @redis # might change during method invocation
     return if redis.nil? || !redis.connected?
 
-    redis.quit rescue nil
+    redis.quit rescue nil # does client.disconnect internally
     # check if input retried while executing
     list_stop unless redis.equal? @redis
     @redis = nil
@@ -250,9 +250,8 @@ EOF
       else
         redis.unsubscribe
       end
-    else
-      redis.disconnect!
     end
+    redis.close rescue nil # does client.disconnect
     # check if input retried while executing
     subscribe_stop unless redis.equal? @redis
     @redis = nil
