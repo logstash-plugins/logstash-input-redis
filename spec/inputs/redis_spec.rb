@@ -16,11 +16,17 @@ def populate(key, event_count)
   end
 end
 
-def process(conf, event_count)
+def wait_events(conf, event_count)
   events = input(conf) do |_, queue|
     sleep 0.1 until queue.size >= event_count
     queue.size.times.map { queue.pop }
   end
+  expect(events.size).to eq event_count
+  events
+end
+
+def process(conf, event_count)
+  events = wait_events(conf, event_count)
   # due multiple workers we get events out-of-order in the output
   events.sort! { |a, b| a.get('sequence') <=> b.get('sequence') }
   expect(events[0].get('sequence')).to eq(0)
@@ -73,7 +79,7 @@ describe "inputs/redis", :redis => true do
       input {
         redis {
           type => "blah"
-          key => "#{key}.*"
+          key => "#{key_base}.*"
           data_type => "pattern_list"
           batch_count => 1
         }
@@ -85,7 +91,7 @@ describe "inputs/redis", :redis => true do
       total_event_count += event_count
       populate("#{key_base}.#{idx}", event_count)
     end
-    process(conf, total_event_count)
+    wait_events(conf, total_event_count)
   end
 
   it "should read events from a list pattern using batch_count (default 125)" do
@@ -94,7 +100,7 @@ describe "inputs/redis", :redis => true do
       input {
         redis {
           type => "blah"
-          key => "#{key}.*"
+          key => "#{key_base}.*"
           data_type => "pattern_list"
           batch_count => 125
         }
@@ -106,7 +112,7 @@ describe "inputs/redis", :redis => true do
       total_event_count += event_count
       populate("#{key_base}.#{idx}", event_count)
     end
-    process(conf, total_event_count)
+    wait_events(conf, total_event_count)
   end
 end
 
