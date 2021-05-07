@@ -114,8 +114,9 @@ describe LogStash::Inputs::Redis do
   let(:queue) { Queue.new }
 
   let(:data_type) { 'list' }
+  let(:redis_key) { 'foo' }
   let(:batch_count) { 1 }
-  let(:config) { {'key' => 'foo', 'data_type' => data_type, 'batch_count' => batch_count} }
+  let(:config) { {'key' => redis_key, 'data_type' => data_type, 'batch_count' => batch_count} }
   let(:quit_calls) { [:quit] }
 
   subject do
@@ -354,57 +355,58 @@ describe LogStash::Inputs::Redis do
 
   context 'runtime for pattern_list data_type' do
     let(:data_type) { 'pattern_list' }
-    let(:key) { 'foo.*' }
+    let(:redis_key) { 'foo.*' }
+
     before do
       subject.register
+      allow_any_instance_of( Redis::Client ).to receive(:connected?).and_return true
+      allow_any_instance_of( Redis::Client ).to receive(:disconnect)
+      allow_any_instance_of( Redis ).to receive(:quit)
       subject.init_threadpool
+    end
+
+    after do
+      subject.stop
     end
 
     context 'close when redis is unset' do
       let(:quit_calls) { [:quit, :unsubscribe, :punsubscribe, :connection, :disconnect!] }
 
       it 'does not attempt to quit' do
-        allow(redis).to receive(:nil?).and_return(true)
+        allow_any_instance_of( Redis::Client ).to receive(:nil?).and_return(true)
         quit_calls.each do |call|
-          expect(redis).not_to receive(call)
+          expect_any_instance_of( Redis::Client ).not_to receive(call)
         end
         expect {subject.do_stop}.not_to raise_error
       end
     end
 
     it 'calling the run method, adds events to the queue' do
-      expect(redis).to receive(:keys).at_least(:once).and_return(['foo.bar'])
-      expect(redis).to receive(:lpop).at_least(:once).and_return('l1')
-
-      allow(redis).to receive(:connected?).and_return(connected.last)
-      allow(redis).to receive(:quit)
+      expect_any_instance_of( Redis ).to receive(:keys).at_least(:once).with(redis_key).and_return ['foo.bar']
+      expect_any_instance_of( Redis ).to receive(:lpop).at_least(:once).with('foo.bar').and_return 'l1'
 
       tt = Thread.new do
         end_by = Time.now + 3
-        while accumulator.size < 1 and Time.now <= end_by
-          sleep 0.1
-        end
+        sleep 0.1 until queue.size > 0 or Time.now > end_by
         subject.do_stop
       end
 
-      subject.run(accumulator)
+      subject.run(queue)
 
       tt.join
 
-      expect(accumulator.size).to be > 0
+      expect(queue.size).to be > 0
     end
 
     it 'multiple close calls, calls to redis once' do
-      subject.use_redis(redis)
-      allow(redis).to receive(:keys).at_least(:once).and_return(['foo.bar'])
-      allow(redis).to receive(:lpop).and_return('l1')
-      expect(redis).to receive(:connected?).and_return(connected.last)
+      allow_any_instance_of( Redis ).to receive(:keys).with(redis_key).and_return(['foo.bar'])
+      allow_any_instance_of( Redis ).to receive(:lpop).with('foo.bar').and_return('l1')
+
       quit_calls.each do |call|
-        expect(redis).to receive(call).at_most(:once)
+        allow_any_instance_of( Redis ).to receive(call).at_most(:once)
       end
 
       subject.do_stop
-      connected.push(false) #can't use let block here so push to array
       expect {subject.do_stop}.not_to raise_error
       subject.do_stop
     end
