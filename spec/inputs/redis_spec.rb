@@ -16,11 +16,17 @@ def populate(key, event_count)
   end
 end
 
-def process(conf, event_count)
+def wait_events(conf, event_count)
   events = input(conf) do |_, queue|
     sleep 0.1 until queue.size >= event_count
     queue.size.times.map { queue.pop }
   end
+  expect(events.size).to eq event_count
+  events
+end
+
+def process(conf, event_count)
+  events = wait_events(conf, event_count)
   # due multiple workers we get events out-of-order in the output
   events.sort! { |a, b| a.get('sequence') <=> b.get('sequence') }
   expect(events[0].get('sequence')).to eq(0)
@@ -66,14 +72,57 @@ describe "inputs/redis", :redis => true do
     populate(key, event_count)
     process(conf, event_count)
   end
+
+  it "should read events from a list pattern" do
+    key_base = SecureRandom.hex
+    conf = <<-CONFIG
+      input {
+        redis {
+          type => "blah"
+          key => "#{key_base}.*"
+          data_type => "pattern_list"
+          batch_count => 1
+        }
+      }
+    CONFIG
+    total_event_count = 0
+    (0..10).each do |idx|
+      event_count = 100 + rand(50)
+      total_event_count += event_count
+      populate("#{key_base}.#{idx}", event_count)
+    end
+    wait_events(conf, total_event_count)
+  end
+
+  it "should read events from a list pattern using batch_count (default 125)" do
+    key_base = SecureRandom.hex
+    conf = <<-CONFIG
+      input {
+        redis {
+          type => "blah"
+          key => "#{key_base}.*"
+          data_type => "pattern_list"
+          batch_count => 125
+        }
+      }
+    CONFIG
+    total_event_count = 0
+    (0..10).each do |idx|
+      event_count = 100 + rand(50)
+      total_event_count += event_count
+      populate("#{key_base}.#{idx}", event_count)
+    end
+    wait_events(conf, total_event_count)
+  end
 end
 
 describe LogStash::Inputs::Redis do
   let(:queue) { Queue.new }
 
   let(:data_type) { 'list' }
+  let(:redis_key) { 'foo' }
   let(:batch_count) { 1 }
-  let(:config) { {'key' => 'foo', 'data_type' => data_type, 'batch_count' => batch_count} }
+  let(:config) { {'key' => redis_key, 'data_type' => data_type, 'batch_count' => batch_count} }
   let(:quit_calls) { [:quit] }
 
   subject do
@@ -310,6 +359,65 @@ describe LogStash::Inputs::Redis do
     end
   end
 
+  context 'runtime for pattern_list data_type' do
+    let(:data_type) { 'pattern_list' }
+    let(:redis_key) { 'foo.*' }
+
+    before do
+      subject.register
+      allow_any_instance_of( Redis::Client ).to receive(:connected?).and_return true
+      allow_any_instance_of( Redis::Client ).to receive(:disconnect)
+      allow_any_instance_of( Redis ).to receive(:quit)
+      subject.init_threadpool
+    end
+
+    after do
+      subject.stop
+    end
+
+    context 'close when redis is unset' do
+      let(:quit_calls) { [:quit, :unsubscribe, :punsubscribe, :connection, :disconnect!] }
+
+      it 'does not attempt to quit' do
+        allow_any_instance_of( Redis::Client ).to receive(:nil?).and_return(true)
+        quit_calls.each do |call|
+          expect_any_instance_of( Redis::Client ).not_to receive(call)
+        end
+        expect {subject.do_stop}.not_to raise_error
+      end
+    end
+
+    it 'calling the run method, adds events to the queue' do
+      expect_any_instance_of( Redis ).to receive(:keys).at_least(:once).with(redis_key).and_return ['foo.bar']
+      expect_any_instance_of( Redis ).to receive(:lpop).at_least(:once).with('foo.bar').and_return 'l1'
+
+      tt = Thread.new do
+        end_by = Time.now + 3
+        sleep 0.1 until queue.size > 0 or Time.now > end_by
+        subject.do_stop
+      end
+
+      subject.run(queue)
+
+      tt.join
+
+      expect(queue.size).to be > 0
+    end
+
+    it 'multiple close calls, calls to redis once' do
+      allow_any_instance_of( Redis ).to receive(:keys).with(redis_key).and_return(['foo.bar'])
+      allow_any_instance_of( Redis ).to receive(:lpop).with('foo.bar').and_return('l1')
+
+      quit_calls.each do |call|
+        allow_any_instance_of( Redis ).to receive(call).at_most(:once)
+      end
+
+      subject.do_stop
+      expect {subject.do_stop}.not_to raise_error
+      subject.do_stop
+    end
+  end
+
   context 'for the subscribe data_types' do
 
     before { subject.register }
@@ -432,7 +540,7 @@ describe LogStash::Inputs::Redis do
 
   context "when using data type" do
 
-    ["list", "channel", "pattern_channel"].each do |data_type|
+    ["list", "channel", "pattern_channel", "pattern_list"].each do |data_type|
       context data_type do
         # TODO pending
         # redis-rb ends up in a read wait loop since we do not use subscribe_with_timeout
