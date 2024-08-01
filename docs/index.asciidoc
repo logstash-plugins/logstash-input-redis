@@ -156,7 +156,10 @@ Enable SSL support.
   * Value type is <<number,number>>
   * Default value is `1`
 
+Number of instances of the input to start, each on its own thread.
+Increase from one to improve concurrency in consuming messages from Redis.
 
+NOTE: increasing threads when consuming from a channel will result in duplicate messages since a SUBSCRIBE delivers each message to all subscribers.
 
 [id="plugins-{type}s-{plugin}-timeout"]
 ===== `timeout`
