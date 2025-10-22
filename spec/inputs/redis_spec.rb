@@ -367,11 +367,15 @@ describe LogStash::Inputs::Redis do
       context 'real redis', :redis => true do
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
+          puts "starting run thread"
           rt = run_it_thread(subject)
           #simulate the other system thread
+          puts "starting publish thread"
           publish_thread(subject.send(:new_redis_instance), 'c').join
+          puts "joined publish thread"
           #simulate the pipeline thread
           close_thread(subject, rt).join
+          puts "joined close thread"
 
           expect(queue.size).to eq(2)
         end
@@ -405,11 +409,15 @@ describe LogStash::Inputs::Redis do
       context 'real redis', :redis => true do
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
+          puts "starting run thread"
           rt = run_it_thread(subject)
           #simulate the other system thread
+          puts "starting publish thread"
           publish_thread(subject.send(:new_redis_instance), 'pc').join
+          puts "joined publish thread"
           #simulate the pipeline thread
           close_thread(subject, rt).join
+          puts "joined close thread"
 
           expect(queue.size).to eq(2)
         end
