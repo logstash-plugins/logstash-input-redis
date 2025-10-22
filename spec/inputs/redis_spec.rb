@@ -332,6 +332,7 @@ describe LogStash::Inputs::Redis do
     def close_thread(inst, rt)
       Thread.new(inst, rt) do |subj, runner|
         # block for the messages
+        puts "close_thread: queue.size #{queue.size}"
         e1 = queue.pop
         e2 = queue.pop
         # put em back for the tests
@@ -367,15 +368,15 @@ describe LogStash::Inputs::Redis do
       context 'real redis', :redis => true do
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
-          puts "starting run thread"
+          puts "starting run thread queue.size: #{queue.size}"
           rt = run_it_thread(subject)
           #simulate the other system thread
-          puts "starting publish thread"
+          puts "starting publish thread queue.size: #{queue.size}"
           publish_thread(subject.send(:new_redis_instance), 'c').join
-          puts "joined publish thread"
+          puts "joined publish thread queue.size: #{queue.size}"
           #simulate the pipeline thread
           close_thread(subject, rt).join
-          puts "joined close thread"
+          puts "joined close thread queue.size: #{queue.size}"
 
           expect(queue.size).to eq(2)
         end
@@ -409,15 +410,15 @@ describe LogStash::Inputs::Redis do
       context 'real redis', :redis => true do
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
-          puts "starting run thread"
+          puts "starting run thread, queue.size: #{queue.size}"
           rt = run_it_thread(subject)
           #simulate the other system thread
-          puts "starting publish thread"
+          puts "starting publish thread queue.size: #{queue.size}"
           publish_thread(subject.send(:new_redis_instance), 'pc').join
-          puts "joined publish thread"
+          puts "joined publish thread queue.size: #{queue.size}"
           #simulate the pipeline thread
           close_thread(subject, rt).join
-          puts "joined close thread"
+          puts "joined close thread queue.size: #{queue.size}"
 
           expect(queue.size).to eq(2)
         end
