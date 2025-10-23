@@ -319,7 +319,7 @@ EOF
       on.message do |channel, message|
         puts "received message #{message}"
         queue_event(message, output_queue, channel)
-        puts "successfully queued message #{message}"
+        puts "successfully enqueued message #{message}"
       end
 
       on.unsubscribe do |channel, count|
@@ -344,7 +344,7 @@ EOF
       on.pmessage do |pattern, channel, message|
         puts "received message #{message}"
         queue_event(message, output_queue, channel)
-        puts "successfully queued message #{message}"
+        puts "successfully enqueued message #{message}"
       end
 
       on.punsubscribe do |channel, count|
