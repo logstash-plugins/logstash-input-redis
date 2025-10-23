@@ -334,8 +334,10 @@ describe LogStash::Inputs::Redis do
     def close_thread(inst, rt, queue)
       Thread.new(inst, rt) do |subj, runner|
         # block for the messages
-        puts "close_thread: queue.size #{queue.size}"
+        puts "close_thread: queue: #{queue.object_id}, queue.size #{queue.size}"
+        puts "popping first event"
         e1 = queue.pop
+        puts "popping second event"
         e2 = queue.pop
         # put em back for the tests
         queue.push(e1)
@@ -371,26 +373,30 @@ describe LogStash::Inputs::Redis do
         it 'calling the run method, adds events to the queue' do
           queue = Queue.new
           #simulate the input thread
-          puts "starting run thread queue.size: #{queue.size}"
+          puts "channel real redis: starting run thread queue: #{queue.object_id}, queue.size: #{queue.size}"
           rt = run_it_thread(subject, queue)
           #simulate the other system thread
-          puts "starting publish thread queue.size: #{queue.size}"
+          puts "starting publish thread queue: #{queue.object_id}, queue.size: #{queue.size}"
           publish_thread(subject.send(:new_redis_instance), 'c').join
-          puts "joined publish thread queue.size: #{queue.size}"
+          puts "joined publish thread queue: #{queue.object_id}, queue.size: #{queue.size}"
           #simulate the pipeline thread
           close_thread(subject, rt, queue).join
-          puts "joined close thread queue.size: #{queue.size}"
+          puts "joined close thread queue: #{queue.object_id}, queue.size: #{queue.size}"
 
           expect(queue.size).to eq(2)
         end
         it 'events had redis_channel' do
           queue = Queue.new
           #simulate the input thread
+          puts "channel: events had redis_channel: starting run thread queue: #{queue.object_id}, queue.size: #{queue.size}"
           rt = run_it_thread(subject, queue)
+          puts "starting publish thread queue: #{queue.object_id}, queue.size: #{queue.size}"
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'c').join
+          puts "joined publish thread queue: #{queue.object_id}, queue.size: #{queue.size}"
           #simulate the pipeline thread
           close_thread(subject, rt, queue).join
+          puts "joined close thread queue: #{queue.object_id}, queue.size: #{queue.size}"
           e1 = queue.pop
           e2 = queue.pop
           expect(e1.get('[@metadata][redis_channel]')).to eq('foo')
@@ -415,15 +421,15 @@ describe LogStash::Inputs::Redis do
         it 'calling the run method, adds events to the queue' do
           queue = Queue.new
           #simulate the input thread
-          puts "starting run thread, queue.size: #{queue.size}"
+          puts "pattern_channel: real redis: starting run thread, queue: #{queue.object_id}, queue.size: #{queue.size}"
           rt = run_it_thread(subject, queue)
           #simulate the other system thread
-          puts "starting publish thread queue.size: #{queue.size}"
+          puts "starting publish thread queue: #{queue.object_id}, queue.size: #{queue.size}"
           publish_thread(subject.send(:new_redis_instance), 'pc').join
-          puts "joined publish thread queue.size: #{queue.size}"
+          puts "joined publish thread queue: #{queue.object_id}, queue.size: #{queue.size}"
           #simulate the pipeline thread
           close_thread(subject, rt, queue).join
-          puts "joined close thread queue.size: #{queue.size}"
+          puts "joined close thread queue: #{queue.object_id}, queue.size: #{queue.size}"
 
           expect(queue.size).to eq(2)
         end
@@ -431,11 +437,15 @@ describe LogStash::Inputs::Redis do
         it 'events had redis_channel' do
           queue = Queue.new
           #simulate the input thread
+          puts "pattern_channel: redis_channel: starting run thread, queue: #{queue.object_id}, queue.size: #{queue.size}"
           rt = run_it_thread(subject, queue)
           #simulate the other system thread
+          puts "starting publish thread queue: #{queue.object_id}, queue.size: #{queue.size}"
           publish_thread(subject.send(:new_redis_instance), 'pc').join
+          puts "joined publish thread queue: #{queue.object_id}, queue.size: #{queue.size}"
           #simulate the pipeline thread
           close_thread(subject, rt, queue).join
+          puts "joined close thread queue: #{queue.object_id}, queue.size: #{queue.size}"
           e1 = queue.pop
           e2 = queue.pop
           expect(e1.get('[@metadata][redis_channel]')).to eq('foo')
