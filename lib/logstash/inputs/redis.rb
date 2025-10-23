@@ -161,9 +161,12 @@ EOF
       @codec.decode(msg) do |event|
         decorate(event)
         event.set("[@metadata][redis_channel]", channel) if !channel.nil?
+        puts "queueing event #{event.object_id} onto queue #{output_queue.object_id}"
         output_queue << event
+        puts "event #{event.object_id} successfully enqueued, queue: #{output_queue.object_id}"
       end
     rescue => e # parse or event creation error
+      puts "couldn't queue event onto queue #{queue.object_id}"
       @logger.error("Failed to create event", :message => msg, :exception => e, :backtrace => e.backtrace);
     end
   end
@@ -314,7 +317,9 @@ EOF
       end
 
       on.message do |channel, message|
+        puts "received message #{message}"
         queue_event(message, output_queue, channel)
+        puts "successfully queued message #{message}"
       end
 
       on.unsubscribe do |channel, count|
@@ -337,7 +342,9 @@ EOF
       end
 
       on.pmessage do |pattern, channel, message|
+        puts "received message #{message}"
         queue_event(message, output_queue, channel)
+        puts "successfully queued message #{message}"
       end
 
       on.punsubscribe do |channel, count|
