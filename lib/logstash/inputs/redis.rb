@@ -161,9 +161,9 @@ EOF
       @codec.decode(msg) do |event|
         decorate(event)
         event.set("[@metadata][redis_channel]", channel) if !channel.nil?
-        puts "enqueueing event #{event.to_json} onto queue #{output_queue.object_id}"
+        puts "enqueueing event #{event.to_json} onto queue #{output_queue.object_id}" if msg['c'] || msg['p']
         output_queue << event
-        puts "event #{event.to_json} successfully enqueued, queue: #{output_queue.object_id}"
+        puts "event #{event.to_json} successfully enqueued, queue: #{output_queue.object_id}" if msg['c'] || msg['p']
       end
     rescue => e # parse or event creation error
       puts "couldn't queue event onto queue #{queue.object_id}"
