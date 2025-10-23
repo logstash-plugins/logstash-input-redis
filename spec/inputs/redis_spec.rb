@@ -337,8 +337,10 @@ describe LogStash::Inputs::Redis do
         puts "close_thread: queue: #{queue.object_id}, queue.size #{queue.size}"
         puts "popping first event"
         e1 = queue.pop
+        puts "got event #{e1.object_id}"
         puts "popping second event"
         e2 = queue.pop
+        puts "got event #{e2.object_id}"
         # put em back for the tests
         queue.push(e1)
         queue.push(e2)
