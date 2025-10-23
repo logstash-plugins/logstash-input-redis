@@ -32,8 +32,6 @@ end
 
 describe "inputs/redis", :redis => true do
 
-  let(:queue) { Queue.new }
-
   it "should read events from a list" do
     key = SecureRandom.hex
     event_count = 1000 + rand(50)
