@@ -314,6 +314,8 @@ describe LogStash::Inputs::Redis do
 
     before { subject.register }
 
+    let(:channel_name) { 'foo' }
+
     def run_it_thread(inst)
       Thread.new(inst) do |subj|
         subj.run(queue)
@@ -324,7 +326,7 @@ describe LogStash::Inputs::Redis do
       Thread.new(new_redis, prefix) do |r, p|
         sleep 0.1
         2.times do |i|
-          r.publish('foo', { data: "#{p}#{i.next}" }.to_json)
+          r.publish(channel_name, { data: "#{p}#{i.next}" }.to_json)
         end
       end
     end
@@ -339,6 +341,15 @@ describe LogStash::Inputs::Redis do
         queue.push(e2)
         runner.raise(LogStash::ShutdownSignal)
         subj.close
+      end
+    end
+
+    def wait_for_channel(timeout = 2)
+      end_time = Time.now + timeout
+      redis_client = subject.send(:new_redis_instance)
+      until redis_client.pubsub("channels").include?(channel_name)
+        break if Time.now > end_time
+        sleep(0.1)
       end
     end
 
@@ -368,7 +379,7 @@ describe LogStash::Inputs::Redis do
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          sleep(0.5) # Give the subscribe request a chance to complete
+          wait_for_channel
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'c').join
           #simulate the pipeline thread
@@ -376,18 +387,19 @@ describe LogStash::Inputs::Redis do
 
           expect(queue.size).to eq(2)
         end
+
         it 'events had redis_channel' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          sleep(0.5) # Give the subscribe request a chance to complete
+          wait_for_channel
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'c').join
           #simulate the pipeline thread
           close_thread(subject, rt).join
           e1 = queue.pop
           e2 = queue.pop
-          expect(e1.get('[@metadata][redis_channel]')).to eq('foo')
-          expect(e2.get('[@metadata][redis_channel]')).to eq('foo')
+          expect(e1.get('[@metadata][redis_channel]')).to eq(channel_name)
+          expect(e2.get('[@metadata][redis_channel]')).to eq(channel_name)
         end
       end
     end
@@ -408,7 +420,7 @@ describe LogStash::Inputs::Redis do
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          sleep(0.5) # Give the subscribe request a chance to complete
+          wait_for_channel
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'pc').join
           #simulate the pipeline thread
@@ -420,15 +432,15 @@ describe LogStash::Inputs::Redis do
         it 'events had redis_channel' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          sleep(0.5) # Give the subscribe request a chance to complete
+          wait_for_channel
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'pc').join
           #simulate the pipeline thread
           close_thread(subject, rt).join
           e1 = queue.pop
           e2 = queue.pop
-          expect(e1.get('[@metadata][redis_channel]')).to eq('foo')
-          expect(e2.get('[@metadata][redis_channel]')).to eq('foo')
+          expect(e1.get('[@metadata][redis_channel]')).to eq(channel_name)
+          expect(e2.get('[@metadata][redis_channel]')).to eq(channel_name)
         end
       end
     end
