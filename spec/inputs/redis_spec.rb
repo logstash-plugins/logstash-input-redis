@@ -368,7 +368,7 @@ describe LogStash::Inputs::Redis do
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          sleep(1) # Give the subscribe request a chance to complete
+          sleep(0.5) # Give the subscribe request a chance to complete
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'c').join
           #simulate the pipeline thread
@@ -379,7 +379,7 @@ describe LogStash::Inputs::Redis do
         it 'events had redis_channel' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          sleep(1) # Give the subscribe request a chance to complete
+          sleep(0.5) # Give the subscribe request a chance to complete
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'c').join
           #simulate the pipeline thread
@@ -408,7 +408,7 @@ describe LogStash::Inputs::Redis do
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          sleep(1) # Give the subscribe request a chance to complete
+          sleep(0.5) # Give the subscribe request a chance to complete
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'pc').join
           #simulate the pipeline thread
@@ -420,7 +420,7 @@ describe LogStash::Inputs::Redis do
         it 'events had redis_channel' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          sleep(1) # Give the subscribe request a chance to complete
+          sleep(0.5) # Give the subscribe request a chance to complete
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'pc').join
           #simulate the pipeline thread
