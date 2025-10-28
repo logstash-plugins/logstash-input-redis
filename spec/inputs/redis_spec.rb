@@ -250,7 +250,7 @@ describe LogStash::Inputs::Redis do
         allow_any_instance_of( Redis ).to receive(:script)
         allow_any_instance_of( Redis::Client ).to receive(:call) do |_, command|
           expect(command[0]).to eql :evalsha
-        end.and_return ['{"a": 1}', '{"b":'], []
+        end.and_return ['{"a": 1}', '{"b": 2}'], []
 
         tt = Thread.new do
           sleep 0.25
