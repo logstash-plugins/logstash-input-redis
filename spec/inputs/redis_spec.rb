@@ -324,7 +324,7 @@ describe LogStash::Inputs::Redis do
       Thread.new(new_redis, prefix) do |r, p|
         sleep 0.1
         2.times do |i|
-          r.publish('foo', "#{p}#{i.next}")
+          r.publish('foo', { data: "#{p}#{i.next}" }.to_json)
         end
       end
     end
