@@ -344,13 +344,24 @@ describe LogStash::Inputs::Redis do
       end
     end
 
-    def wait_for_channel(timeout = 2)
+    def pattern_ready?(timeout = 2)
       end_time = Time.now + timeout
       redis_client = subject.send(:new_redis_instance)
-      until redis_client.pubsub("channels").include?(channel_name)
-        break if Time.now > end_time
+      until redis_client.pubsub('numpat') > 0
+        return false if Time.now > end_time
         sleep(0.1)
       end
+      return true
+    end
+
+    def channel_ready?(timeout = 2)
+      end_time = Time.now + timeout
+      redis_client = subject.send(:new_redis_instance)
+      until redis_client.pubsub('channels').include?(channel_name)
+        return false if Time.now > end_time
+        sleep(0.1)
+      end
+      return true
     end
 
     before(:example, type: :mocked) do
@@ -379,7 +390,7 @@ describe LogStash::Inputs::Redis do
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          wait_for_channel
+          fail "Channel not ready in time for publishing." unless channel_ready?
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'c').join
           #simulate the pipeline thread
@@ -391,7 +402,7 @@ describe LogStash::Inputs::Redis do
         it 'events had redis_channel' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          wait_for_channel
+          fail "Channel not ready in time for publishing." unless channel_ready?
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'c').join
           #simulate the pipeline thread
@@ -420,7 +431,7 @@ describe LogStash::Inputs::Redis do
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          wait_for_channel
+          fail "Pattern subscription not ready in time for publishing." unless pattern_ready?
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'pc').join
           #simulate the pipeline thread
@@ -432,7 +443,7 @@ describe LogStash::Inputs::Redis do
         it 'events had redis_channel' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          wait_for_channel
+          fail "Pattern subscription not ready in time for publishing." unless pattern_ready?
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'pc').join
           #simulate the pipeline thread
