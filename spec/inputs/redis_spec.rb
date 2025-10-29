@@ -351,7 +351,7 @@ describe LogStash::Inputs::Redis do
         return false if Time.now > end_time
         sleep(0.1)
       end
-      return true
+      true
     end
 
     def channel_ready?(timeout = 2)
@@ -361,7 +361,7 @@ describe LogStash::Inputs::Redis do
         return false if Time.now > end_time
         sleep(0.1)
       end
-      return true
+      true
     end
 
     before(:example, type: :mocked) do
