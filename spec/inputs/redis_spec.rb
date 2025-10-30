@@ -316,6 +316,8 @@ describe LogStash::Inputs::Redis do
 
     let(:channel_name) { 'foo' }
 
+    let(:redis_client) { subject.send(:new_redis_instance) }
+
     def run_it_thread(inst)
       Thread.new(inst) do |subj|
         subj.run(queue)
@@ -344,13 +346,6 @@ describe LogStash::Inputs::Redis do
       end
     end
 
-    def subscription_ready?(timeout = 2)
-      redis_client = subject.send(:new_redis_instance)
-      Stud.try(10.times) do
-        raise unless yield(redis_client)
-      end
-    end
-
     before(:example, type: :mocked) do
       subject.register
       allow_any_instance_of( Redis::Client ).to receive(:connected?).and_return true, false
@@ -374,14 +369,11 @@ describe LogStash::Inputs::Redis do
       end
 
       context 'real redis', :redis => true do
+
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          begin
-            subscription_ready? { |client| client.pubsub('channels').include?(channel_name) }
-          rescue
-            fail "Channel not ready in time for publishing."
-          end
+          try(10) { expect(redis_client.pubsub('channels')).to include(channel_name) }
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'c').join
           #simulate the pipeline thread
@@ -393,11 +385,7 @@ describe LogStash::Inputs::Redis do
         it 'events had redis_channel' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          begin
-            subscription_ready? { |client| client.pubsub('channels').include?(channel_name) }
-          rescue
-            fail "Channel not ready in time for publishing."
-          end
+          try(10) { expect(redis_client.pubsub('channels')).to include(channel_name) }
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'c').join
           #simulate the pipeline thread
@@ -423,14 +411,11 @@ describe LogStash::Inputs::Redis do
       end
 
       context 'real redis', :redis => true do
+
         it 'calling the run method, adds events to the queue' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          begin
-            subscription_ready? { |client| client.pubsub('numpat') > 0 }
-          rescue
-            fail "Channel not ready in time for publishing."
-          end
+          try(10) { expect(redis_client.pubsub('numpat') > 0) }
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'pc').join
           #simulate the pipeline thread
@@ -442,11 +427,7 @@ describe LogStash::Inputs::Redis do
         it 'events had redis_channel' do
           #simulate the input thread
           rt = run_it_thread(subject)
-          begin
-            subscription_ready? { |client| client.pubsub('numpat') > 0 }
-          rescue
-            fail "Channel not ready in time for publishing."
-          end
+          try(10) { expect(redis_client.pubsub('numpat') > 0) }
           #simulate the other system thread
           publish_thread(subject.send(:new_redis_instance), 'pc').join
           #simulate the pipeline thread
