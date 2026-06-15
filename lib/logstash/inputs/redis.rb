@@ -30,6 +30,9 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # The hostnames of your sentinel servers.
   config :sentinel_hosts, :validate => :array
 
+  # The connection URLs of your cluster servers.
+  config :cluster_hosts, :validate => :array
+
   # The port to connect on.
   config :port, :validate => :number, :default => 6379
 
@@ -42,7 +45,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # SSL
   config :ssl, :validate => :boolean, :default => false
 
-  # The unix socket path to connect on. Will override host and port and sentinel_hosts and sentinel_port if defined.
+  # The unix socket path to connect on. Will override host and port and sentinel_hosts and sentinel_port and cluster_hosts if defined.
   # There is no unix socket path by default.
   config :path, :validate => :string
 
@@ -72,7 +75,15 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   public
 
   def register
-    @redis_url = @path.nil? ? "redis://#{@password}@#{@sentinel_hosts.nil? ? @host : @sentinel_master_name}:#{@port}/#{@db}" : "#{@password}@#{@path}/#{@db}"
+    if !@path.nil?
+      @redis_url = "#{@password}@#{@path}/#{@db}"
+    elsif !@cluster_hosts.nil?
+      @redis_url = "#{@password}@#{@cluster_hosts.map { |h| "#{h}" }.join(',')}/#{@db}"
+    elsif !@sentinel_hosts.nil?
+      @redis_url = "redis://#{@password}@#{@sentinel_master_name}:#{@port}/#{@db}"
+    else
+      @redis_url = "redis://#{@password}@#{@host}:#{@port}/#{@db}"
+    end
 
     # just switch on data_type once
     if @data_type == 'list' || @data_type == 'dummy'
@@ -124,17 +135,21 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     }
 
     if @path.nil?
-      if @sentinel_hosts.nil?
+      if !@cluster_hosts.nil?
         params = {
-          :host => @host,
-          :port => @port
+          :cluster => cluster_hosts,
         }
-      else
+      elsif !@sentinel_hosts.nil?
         hosts = @sentinel_hosts.map { |sentinel_host| { host: sentinel_host, port: @sentinel_port } }
         params = {
           :name => @sentinel_master_name,
           :sentinels => hosts,
           :role => :master
+        }
+      else
+        params = {
+          :host => @host,
+          :port => @port
         }
       end
     else
