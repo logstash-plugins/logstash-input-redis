@@ -27,13 +27,22 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # The hostname of your Redis server.
   config :host, :validate => :string, :default => "127.0.0.1"
 
+  # The hostnames of your sentinel servers.
+  config :sentinel_hosts, :validate => :array
+
   # The port to connect on.
   config :port, :validate => :number, :default => 6379
+
+  # The sentinel port to connect on.
+  config :sentinel_port, :validate => :number, :default => 26379
+
+  # The name of the sentinel master to connect to.
+  config :sentinel_master_name, :validate => :string, :default => "mymaster"
 
   # SSL
   config :ssl, :validate => :boolean, :default => false
 
-  # The unix socket path to connect on. Will override host and port if defined.
+  # The unix socket path to connect on. Will override host and port and sentinel_hosts and sentinel_port if defined.
   # There is no unix socket path by default.
   config :path, :validate => :string
 
@@ -63,7 +72,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   public
 
   def register
-    @redis_url = @path.nil? ? "redis://#{@password}@#{@host}:#{@port}/#{@db}" : "#{@password}@#{@path}/#{@db}"
+    @redis_url = @path.nil? ? "redis://#{@password}@#{@sentinel_hosts.nil? ? @host : @sentinel_master_name}:#{@port}/#{@db}" : "#{@password}@#{@path}/#{@db}"
 
     # just switch on data_type once
     if @data_type == 'list' || @data_type == 'dummy'
@@ -115,8 +124,19 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     }
 
     if @path.nil?
-      params[:host] = @host
-      params[:port] = @port
+      if @sentinel_hosts.nil?
+        params = {
+          :host => @host,
+          :port => @port
+        }
+      else
+        hosts = @sentinel_hosts.map { |sentinel_host| { host: sentinel_host, port: @sentinel_port } }
+        params = {
+          :name => @sentinel_master_name,
+          :sentinels => hosts,
+          :role => :master
+        }
+      end
     else
       @logger.warn("Parameter 'path' is set, ignoring parameters: 'host' and 'port'")
       params[:path] = @path
