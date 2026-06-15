@@ -142,7 +142,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
       elsif !@sentinel_hosts.nil?
         hosts = @sentinel_hosts.map { |sentinel_host| { host: sentinel_host, port: @sentinel_port } }
         params = {
-          :name => @sentinel_master_name,
+          :host => @sentinel_master_name,
           :sentinels => hosts,
           :role => :master
         }
