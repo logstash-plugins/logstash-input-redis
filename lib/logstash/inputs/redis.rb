@@ -154,7 +154,7 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
         }
       end
     else
-      @logger.warn("Parameter 'path' is set, ignoring parameters: 'host' and 'port'")
+      @logger.warn("Parameter 'path' is set, ignoring parameters: 'host', 'port', 'sentinel_hosts' and 'cluster_hosts'")
       params[:path] = @path
     end
 
