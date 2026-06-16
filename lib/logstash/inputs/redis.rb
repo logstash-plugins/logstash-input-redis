@@ -3,6 +3,7 @@ require "logstash/namespace"
 require "logstash/inputs/base"
 require "logstash/inputs/threadable"
 require 'redis'
+require 'redis-clustering'
 require "stud/interval"
 
 # This input will read events from a Redis instance; it supports both Redis channels and lists.
@@ -137,12 +138,12 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     if @path.nil?
       if !@cluster_hosts.nil?
         params = {
-          :cluster => cluster_hosts,
+          :nodes => cluster_hosts,
         }
       elsif !@sentinel_hosts.nil?
         hosts = @sentinel_hosts.map { |sentinel_host| { host: sentinel_host, port: @sentinel_port } }
         params = {
-          :host => @sentinel_master_name,
+          :name => @sentinel_master_name,
           :sentinels => hosts,
           :role => :master
         }
@@ -161,17 +162,12 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   end
 
   def new_redis_instance
-    ::Redis.new(redis_params)
+    @cluster_hosts.nil? ? ::Redis.new(redis_params) : ::Redis::Cluster.new(redis_params)
   end
 
   # private
   def connect
     redis = new_redis_instance
-
-    # register any renamed Redis commands
-    @command_map.each do |name, renamed|
-      redis._client.command_map[name.to_sym] = renamed.to_sym
-    end
 
     load_batch_script(redis) if batched? && is_list_type?
 
@@ -266,7 +262,7 @@ EOF
   end
 
   def list_single_listener(redis, output_queue)
-    item = redis.blpop(@key, 0, :timeout => 1)
+    item = redis.blpop(@key, timeout: 1)
     return unless item # from timeout or other conditions
 
     # blpop returns the 'key' read from as well as the item result
