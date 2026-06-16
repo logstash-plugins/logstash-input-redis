@@ -6,3 +6,74 @@ services:
     redis:
       image: redis:7
       network_mode: host
+      entrypoint: ["/bin/sh", "-c"]
+      command:
+        - |
+          set -e
+
+          # --- Standalone (port 6379) ---
+          redis-server --port 6379 --daemonize yes --logfile /tmp/redis-standalone.log
+
+          # --- Sentinel Setup (ports 7000-7002, sentinels 26379-26381) ---
+          mkdir -p /tmp/redis-sentinel/7000 /tmp/redis-sentinel/7001 /tmp/redis-sentinel/7002
+
+          # Primary
+          redis-server --port 7000 --daemonize yes --logfile /tmp/redis-sentinel/7000/redis.log --dir /tmp/redis-sentinel/7000
+
+          # Replicas
+          redis-server --port 7001 --daemonize yes --replicaof 127.0.0.1 7000 --logfile /tmp/redis-sentinel/7001/redis.log --dir /tmp/redis-sentinel/7001
+          redis-server --port 7002 --daemonize yes --replicaof 127.0.0.1 7000 --logfile /tmp/redis-sentinel/7002/redis.log --dir /tmp/redis-sentinel/7002
+
+          # Sentinel config files
+          for port in 26379 26380 26381; do
+            {
+              echo "port ${port}"
+              echo "sentinel monitor mymaster 127.0.0.1 7000 2"
+              echo "sentinel down-after-milliseconds mymaster 5000"
+              echo "sentinel failover-timeout mymaster 10000"
+              echo "sentinel parallel-syncs mymaster 1"
+              echo "daemonize yes"
+              echo "logfile /tmp/sentinel-${port}.log"
+            } > /tmp/sentinel-${port}.conf
+            redis-server /tmp/sentinel-${port}.conf --sentinel
+          done
+
+          # --- Cluster Setup (ports 7003-7008) ---
+          mkdir -p /tmp/redis-cluster/7003 /tmp/redis-cluster/7004 /tmp/redis-cluster/7005 /tmp/redis-cluster/7006 /tmp/redis-cluster/7007 /tmp/redis-cluster/7008
+
+          for port in 7003 7004 7005 7006 7007 7008; do
+            {
+              echo "port ${port}"
+              echo "cluster-enabled yes"
+              echo "cluster-config-file /tmp/redis-cluster/${port}/nodes.conf"
+              echo "cluster-node-timeout 5000"
+              echo "appendonly yes"
+              echo "daemonize yes"
+              echo "logfile /tmp/redis-cluster/${port}/redis.log"
+              echo "dir /tmp/redis-cluster/${port}"
+            } > /tmp/redis-cluster/${port}/redis.conf
+            redis-server /tmp/redis-cluster/${port}/redis.conf
+          done
+
+          # Wait for cluster nodes to be reachable before bootstrapping
+          for port in 7003 7004 7005 7006 7007 7008; do
+            i=0
+            until redis-cli -p ${port} ping >/dev/null 2>&1; do
+              i=$((i + 1))
+              if [ ${i} -ge 30 ]; then
+                echo "redis cluster node on port ${port} did not start in time" >&2
+                exit 1
+              fi
+              sleep 1
+            done
+          done
+
+          # Bootstrap the cluster (3 masters + 3 replicas)
+          echo "yes" | redis-cli --cluster create \
+            127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005 \
+            127.0.0.1:7006 127.0.0.1:7007 127.0.0.1:7008 \
+            --cluster-replicas 1
+
+          # Keep the container alive; all real redis-server processes above
+          # are daemonized so this tail is only a foreground placeholder.
+          exec tail -f /dev/null

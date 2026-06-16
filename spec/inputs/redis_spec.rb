@@ -3,11 +3,35 @@ require "logstash/devutils/rspec/shared_examples"
 require 'logstash/inputs/redis'
 require 'securerandom'
 
-def populate(key, event_count)
+STANDALONE_REDIS_PARAMS = { host: '127.0.0.1', port: 6379 }.freeze
+
+SENTINEL_REDIS_PARAMS = {
+  host: 'mymaster',
+  sentinels: [
+    { host: '127.0.0.1', port: 26379 },
+    { host: '127.0.0.1', port: 26380 },
+    { host: '127.0.0.1', port: 26381 }
+  ],
+  role: :master
+}.freeze
+
+CLUSTER_REDIS_PARAMS = {
+  cluster: %w[redis://127.0.0.1:7003 redis://127.0.0.1:7004 redis://127.0.0.1:7005]
+}.freeze
+
+SENTINEL_EXTRA_CONFIG = <<~CONF.strip
+  sentinel_hosts => ["127.0.0.1:26379", "127.0.0.1:26380", "127.0.0.1:26381"]
+CONF
+
+CLUSTER_EXTRA_CONFIG = <<~CONF.strip
+  cluster_hosts => ["redis://127.0.0.1:7003", "redis://127.0.0.1:7004", "redis://127.0.0.1:7005"]
+CONF
+
+def populate(key, event_count, redis_params = STANDALONE_REDIS_PARAMS)
   require "logstash/event"
   require "redis"
   require "stud/try"
-  redis = Redis.new(:host => "localhost")
+  redis = Redis.new(redis_params)
   event_count.times do |value|
     event = LogStash::Event.new("sequence" => value)
     Stud.try(10.times) do
@@ -30,8 +54,7 @@ end
 
 # integration tests ---------------------
 
-describe "inputs/redis", :redis => true do
-
+shared_examples "redis list integration" do |redis_params, extra_config|
   it "should read events from a list" do
     key = SecureRandom.hex
     event_count = 1000 + rand(50)
@@ -42,11 +65,11 @@ describe "inputs/redis", :redis => true do
           key => "#{key}"
           data_type => "list"
           batch_count => 1
+          #{extra_config}
         }
       }
     CONFIG
-
-    populate(key, event_count)
+    populate(key, event_count, redis_params)
     process(conf, event_count)
   end
 
@@ -59,13 +82,25 @@ describe "inputs/redis", :redis => true do
           type => "blah"
           key => "#{key}"
           data_type => "list"
+          #{extra_config}
         }
       }
     CONFIG
-
-    populate(key, event_count)
+    populate(key, event_count, redis_params)
     process(conf, event_count)
   end
+end
+
+describe "inputs/redis standalone", :redis => true do
+  include_examples "redis list integration", STANDALONE_REDIS_PARAMS, ""
+end
+
+describe "inputs/redis sentinel", :redis => true do
+  include_examples "redis list integration", SENTINEL_REDIS_PARAMS, SENTINEL_EXTRA_CONFIG
+end
+
+describe "inputs/redis cluster", :redis => true do
+  include_examples "redis list integration", CLUSTER_REDIS_PARAMS, CLUSTER_EXTRA_CONFIG
 end
 
 describe LogStash::Inputs::Redis do
