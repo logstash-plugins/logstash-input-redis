@@ -3,3 +3,6 @@ version: '3'
 services:
     logstash:
       network_mode: host
+    redis:
+      image: redis:7
+      network_mode: host
