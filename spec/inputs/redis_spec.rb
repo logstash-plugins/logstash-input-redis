@@ -17,15 +17,17 @@ def populate(key, event_count)
 end
 
 def process(conf, event_count)
+  expect(event_count).to be > 0
   events = input(conf) do |_, queue|
     sleep 0.1 until queue.size >= event_count
     queue.size.times.map { queue.pop }
   end
   # due multiple workers we get events out-of-order in the output
   events.sort! { |a, b| a.get('sequence') <=> b.get('sequence') }
-  expect(events[0].get('sequence')).to eq(0)
-  expect(events[100].get('sequence')).to eq(100)
-  expect(events[1000].get('sequence')).to eq(1000)
+  [0, 100, 1000].each do |idx|
+    idx = [idx, event_count - 1].min
+    expect(events[idx].get('sequence')).to eq idx
+  end
 end
 
 # integration tests ---------------------
