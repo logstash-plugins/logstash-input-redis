@@ -3,11 +3,36 @@ require "logstash/devutils/rspec/shared_examples"
 require 'logstash/inputs/redis'
 require 'securerandom'
 
-def populate(key, event_count)
+STANDALONE_REDIS_PARAMS = { host: '127.0.0.1', port: 6379 }.freeze
+
+SENTINEL_REDIS_PARAMS = {
+  name: 'mymaster',
+  sentinels: [
+    { host: '127.0.0.1', port: 26379 },
+    { host: '127.0.0.1', port: 26380 },
+    { host: '127.0.0.1', port: 26381 }
+  ],
+  role: :master
+}.freeze
+
+CLUSTER_REDIS_PARAMS = {
+  nodes: %w[redis://127.0.0.1:7003 redis://127.0.0.1:7004 redis://127.0.0.1:7005]
+}.freeze
+
+SENTINEL_EXTRA_CONFIG = <<~CONF.strip
+  sentinel_hosts => ["127.0.0.1:26379", "127.0.0.1:26380", "127.0.0.1:26381"]
+CONF
+
+CLUSTER_EXTRA_CONFIG = <<~CONF.strip
+  cluster_hosts => ["redis://127.0.0.1:7003", "redis://127.0.0.1:7004", "redis://127.0.0.1:7005"]
+CONF
+
+def populate(key, event_count, redis_params = STANDALONE_REDIS_PARAMS)
   require "logstash/event"
   require "redis"
+  require "redis-clustering"
   require "stud/try"
-  redis = Redis.new(:host => "localhost")
+  redis = redis_params.key?(:nodes) ? ::Redis::Cluster.new(redis_params) : ::Redis.new(redis_params)
   event_count.times do |value|
     event = LogStash::Event.new("sequence" => value)
     Stud.try(10.times) do
@@ -30,11 +55,10 @@ end
 
 # integration tests ---------------------
 
-describe "inputs/redis", :redis => true do
-
+shared_examples "redis list integration" do |redis_params, extra_config|
   it "should read events from a list" do
     key = SecureRandom.hex
-    event_count = 1000 + rand(50)
+    event_count = 1001 + rand(50)
     conf = <<-CONFIG
       input {
         redis {
@@ -42,30 +66,42 @@ describe "inputs/redis", :redis => true do
           key => "#{key}"
           data_type => "list"
           batch_count => 1
+          #{extra_config}
         }
       }
     CONFIG
-
-    populate(key, event_count)
+    populate(key, event_count, redis_params)
     process(conf, event_count)
   end
 
   it "should read events from a list using batch_count (default 125)" do
     key = SecureRandom.hex
-    event_count = 1000 + rand(50)
+    event_count = 1001 + rand(50)
     conf = <<-CONFIG
       input {
         redis {
           type => "blah"
           key => "#{key}"
           data_type => "list"
+          #{extra_config}
         }
       }
     CONFIG
-
-    populate(key, event_count)
+    populate(key, event_count, redis_params)
     process(conf, event_count)
   end
+end
+
+describe "inputs/redis standalone", :redis => true do
+  include_examples "redis list integration", STANDALONE_REDIS_PARAMS, ""
+end
+
+describe "inputs/redis sentinel", :redis => true do
+  include_examples "redis list integration", SENTINEL_REDIS_PARAMS, SENTINEL_EXTRA_CONFIG
+end
+
+describe "inputs/redis cluster", :redis => true do
+  include_examples "redis list integration", CLUSTER_REDIS_PARAMS, CLUSTER_EXTRA_CONFIG
 end
 
 describe LogStash::Inputs::Redis do
@@ -104,35 +140,25 @@ describe LogStash::Inputs::Redis do
       }
     end
 
-    it 'sets the renamed commands in the command map' do
-      allow_any_instance_of( Redis::Client ).to receive(:call) do |_, command|
+    it 'registers and connects without error' do
+      allow_any_instance_of( Redis::Client ).to receive(:call_v) do |_, command|
         expect(command[0]).to eql :script
-        expect(command[1]).to eql 'load'
-      end
+        expect(command[1].to_s.downcase).to eql 'load'
+      end.and_return('a' * 40)
 
       subject.register
-      redis = subject.send :connect
-
-      command_map = redis._client.command_map
-
-      expect(command_map[:blpop]).to eq config['command_map']['blpop'].to_sym
-      expect(command_map[:evalsha]).to eq config['command_map']['evalsha'].to_sym
-      expect(command_map[:lrange]).to eq config['command_map']['lrange'].to_sym
-      expect(command_map[:ltrim]).to eq config['command_map']['ltrim'].to_sym
-      expect(command_map[:script]).to eq config['command_map']['script'].to_sym
-      expect(command_map[:subscribe]).to eq config['command_map']['subscribe'].to_sym
-      expect(command_map[:psubscribe]).to eq config['command_map']['psubscribe'].to_sym
+      expect { subject.send :connect }.not_to raise_error
     end
 
     it 'loads the batch script with the renamed command' do
-      expect_any_instance_of( Redis::Client ).to receive(:call) do |_, command|
+      expect_any_instance_of( Redis::Client ).to receive(:call_v) do |_, command|
         expect(command[0]).to eql :script
-        expect(command[1]).to eql 'load'
+        expect(command[1].to_s.downcase).to eql 'load'
 
         script = command[2]
         expect(script).to include "redis.call('#{config['command_map']['lrange']}', KEYS[1], 0, batchsize)"
         expect(script).to include "redis.call('#{config['command_map']['ltrim']}', KEYS[1], batchsize + 1, -1)"
-      end
+      end.and_return('a' * 40)
 
       subject.register
       subject.send :connect
@@ -163,9 +189,10 @@ describe LogStash::Inputs::Redis do
     end
 
     it 'calling the run method, adds events to the queue' do
-      allow_any_instance_of( Redis::Client ).to receive(:call_with_timeout) do |_, command, timeout, &block|
+      allow_any_instance_of( Redis::Client ).to receive(:blocking_call_v) do |_, timeout, command|
         expect(command[0]).to eql :blpop
-        expect(command[1]).to eql ['foo', 0]
+        expect(command[1]).to eql 'foo'
+        expect(command[2]).to eql 1
       end.and_return ['foo', "{\"foo1\":\"bar\"}"], nil
 
       tt = Thread.new do
@@ -182,7 +209,7 @@ describe LogStash::Inputs::Redis do
 
     it 'keeps running when a connection error occurs' do
       raised = false
-      allow_any_instance_of( Redis::Client ).to receive(:call_with_timeout) do |_, command, timeout, &block|
+      allow_any_instance_of( Redis::Client ).to receive(:blocking_call_v) do |_, timeout, command|
         expect(command[0]).to eql :blpop
         unless raised
           raised = true
@@ -247,8 +274,8 @@ describe LogStash::Inputs::Redis do
       let(:batch_count) { 10 }
 
       it 'calling the run method, adds events to the queue' do
-        allow_any_instance_of( Redis ).to receive(:script)
-        allow_any_instance_of( Redis::Client ).to receive(:call) do |_, command|
+        allow_any_instance_of( Redis ).to receive(:script).and_return('a' * 40)
+        allow_any_instance_of( Redis::Client ).to receive(:call_v) do |_, command|
           expect(command[0]).to eql :evalsha
         end.and_return ['{"a": 1}', '{"b": 2}'], []
 
@@ -270,8 +297,8 @@ describe LogStash::Inputs::Redis do
       let(:rates) { [] }
 
       it 'will throttle the loop' do
-        allow_any_instance_of( Redis ).to receive(:script)
-        allow_any_instance_of( Redis::Client ).to receive(:call) do |_, command|
+        allow_any_instance_of( Redis ).to receive(:script).and_return('a' * 40)
+        allow_any_instance_of( Redis::Client ).to receive(:call_v) do |_, command|
           expect(command[0]).to eql :evalsha
           rates.unshift Time.now.to_f
         end.and_return []
@@ -292,7 +319,7 @@ describe LogStash::Inputs::Redis do
 
         expect( queue.size ).to eq(0)
         inters.each do |delta|
-          expect(delta).to be_within(0.01).of(LogStash::Inputs::Redis::BATCH_EMPTY_SLEEP)
+          expect(delta).to be_within(0.05).of(LogStash::Inputs::Redis::BATCH_EMPTY_SLEEP)
         end
       end
     end

@@ -1,3 +1,7 @@
+## 3.8.0
+  - Add Redis sentinel and cluster support [#101](https://github.com/logstash-plugins/logstash-input-redis/pull/101/changes)
+  - Updated redis client dependency to ~> 5
+
 ## 3.7.1
   - Add documentation to "threads" option [#95](https://github.com/logstash-plugins/logstash-input-redis/pull/95)
 

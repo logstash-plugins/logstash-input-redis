@@ -3,6 +3,7 @@ require "logstash/namespace"
 require "logstash/inputs/base"
 require "logstash/inputs/threadable"
 require 'redis'
+require 'redis-clustering'
 require "stud/interval"
 
 # This input will read events from a Redis instance; it supports both Redis channels and lists.
@@ -27,13 +28,22 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   # The hostname of your Redis server.
   config :host, :validate => :string, :default => "127.0.0.1"
 
+  # The hostnames and ports of your sentinel servers.
+  config :sentinel_hosts, :validate => :array
+
+  # The connection URLs of your cluster servers.
+  config :cluster_hosts, :validate => :array
+
   # The port to connect on.
   config :port, :validate => :number, :default => 6379
+
+  # The name of the sentinel master to connect to.
+  config :sentinel_master_name, :validate => :string, :default => "mymaster"
 
   # SSL
   config :ssl, :validate => :boolean, :default => false
 
-  # The unix socket path to connect on. Will override host and port if defined.
+  # The unix socket path to connect on. Will override host and port and sentinel_hosts and cluster_hosts if defined.
   # There is no unix socket path by default.
   config :path, :validate => :string
 
@@ -63,7 +73,15 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   public
 
   def register
-    @redis_url = @path.nil? ? "redis://#{@password}@#{@host}:#{@port}/#{@db}" : "#{@password}@#{@path}/#{@db}"
+    if !@path.nil?
+      @redis_url = "#{@password}@#{@path}/#{@db}"
+    elsif !@cluster_hosts.nil?
+      @redis_url = "#{@password}@#{@cluster_hosts.map { |h| "#{h}" }.join(',')}/#{@db}"
+    elsif !@sentinel_hosts.nil?
+      @redis_url = "redis://#{@password}@#{@sentinel_master_name}(#{@sentinel_hosts.map { |h| "#{h}" }.join(',')})/#{@db}"
+    else
+      @redis_url = "redis://#{@password}@#{@host}:#{@port}/#{@db}"
+    end
 
     # just switch on data_type once
     if @data_type == 'list' || @data_type == 'dummy'
@@ -115,10 +133,28 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
     }
 
     if @path.nil?
-      params[:host] = @host
-      params[:port] = @port
+      if !@cluster_hosts.nil?
+        params = {
+          :nodes => cluster_hosts,
+        }
+      elsif !@sentinel_hosts.nil?
+        hosts = @sentinel_hosts.map do |sentinel_host|
+          host, port = sentinel_host.split(':', 2)
+          { host: host, port: port ? port.to_i : 26379 }
+        end
+        params = {
+          :name => @sentinel_master_name,
+          :sentinels => hosts,
+          :role => :master
+        }
+      else
+        params = {
+          :host => @host,
+          :port => @port
+        }
+      end
     else
-      @logger.warn("Parameter 'path' is set, ignoring parameters: 'host' and 'port'")
+      @logger.warn("Parameter 'path' is set, ignoring parameters: 'host', 'port', 'sentinel_hosts' and 'cluster_hosts'")
       params[:path] = @path
     end
 
@@ -126,17 +162,12 @@ module LogStash module Inputs class Redis < LogStash::Inputs::Threadable
   end
 
   def new_redis_instance
-    ::Redis.new(redis_params)
+    @cluster_hosts.nil? ? ::Redis.new(redis_params) : ::Redis::Cluster.new(redis_params)
   end
 
   # private
   def connect
     redis = new_redis_instance
-
-    # register any renamed Redis commands
-    @command_map.each do |name, renamed|
-      redis._client.command_map[name.to_sym] = renamed.to_sym
-    end
 
     load_batch_script(redis) if batched? && is_list_type?
 
@@ -231,7 +262,7 @@ EOF
   end
 
   def list_single_listener(redis, output_queue)
-    item = redis.blpop(@key, 0, :timeout => 1)
+    item = redis.blpop(@key, timeout: 1)
     return unless item # from timeout or other conditions
 
     # blpop returns the 'key' read from as well as the item result
