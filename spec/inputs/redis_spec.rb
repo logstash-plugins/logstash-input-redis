@@ -34,7 +34,7 @@ describe "inputs/redis", :redis => true do
 
   it "should read events from a list" do
     key = SecureRandom.hex
-    event_count = 1000 + rand(50)
+    event_count = 1001
     conf = <<-CONFIG
       input {
         redis {
@@ -52,7 +52,7 @@ describe "inputs/redis", :redis => true do
 
   it "should read events from a list using batch_count (default 125)" do
     key = SecureRandom.hex
-    event_count = 1000 + rand(50)
+    event_count = 1001
     conf = <<-CONFIG
       input {
         redis {
